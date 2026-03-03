@@ -1,0 +1,164 @@
+<%- include('layout-start', { pageTitle: item.title }) %>
+
+<article class="review-page">
+  <div class="review-header">
+    <div class="review-meta">
+      <span class="category"><%= item.category %></span>
+      <span class="date"><%= new Date(item.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></span>
+      <% if (item.status === 'decided') { %>
+        <span class="badge badge-decided"><%= item.decision %></span>
+      <% } else { %>
+        <span class="badge badge-<%= item.status %>"><%= item.status %></span>
+      <% } %>
+    </div>
+    <h1><%= item.title %></h1>
+  </div>
+
+  <% if (item.feedback) { %>
+    <div class="feedback-display">
+      <strong>Feedback:</strong> <%= item.feedback %>
+    </div>
+  <% } %>
+
+  <% if (!item.markdown && (item.rendered_html.includes('<!DOCTYPE') || item.rendered_html.includes('<html'))) { %>
+    <div class="rendered-content rendered-content--fullpage">
+      <iframe srcdoc="<%- item.rendered_html.replace(/"/g, '&quot;') %>" style="width:100%;min-height:80vh;border:1px solid #eee8d5;border-radius:4px;"></iframe>
+    </div>
+  <% } else { %>
+    <div class="rendered-content">
+      <%- item.rendered_html %>
+    </div>
+  <% } %>
+</article>
+
+<% if (item.status === 'pending') { %>
+<div class="action-bar">
+  <div class="action-form">
+    <div class="feedback-wrapper">
+      <input type="text" id="feedbackInput" placeholder="Add feedback (optional — or tap 🎙 to dictate)" class="feedback-input">
+      <button type="button" id="micBtn" class="btn-mic" onclick="toggleDictation()" title="Dictate feedback">🎙</button>
+    </div>
+    <div class="action-buttons">
+      <% actions.forEach(function(action, i) { %>
+        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+          <%= action %>
+        </button>
+      <% }); %>
+    </div>
+  </div>
+</div>
+<% } else { %>
+<div class="action-bar action-bar--decided">
+  <div class="decided-summary">
+    <strong>Decision:</strong> <%= item.decision || item.status %>
+    <% if (item.feedback) { %> — "<%= item.feedback %>"<% } %>
+  </div>
+</div>
+<% } %>
+
+<script>
+  // Speech-to-text via OpenAI Whisper
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let isRecording = false;
+
+  function toggleDictation() {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        await transcribe(blob);
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      const btn = document.getElementById('micBtn');
+      btn.classList.add('listening');
+      btn.textContent = '⏹';
+    } catch (err) {
+      alert('Microphone access denied');
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    const btn = document.getElementById('micBtn');
+    btn.classList.remove('listening');
+    btn.classList.add('transcribing');
+    btn.textContent = '⏳';
+  }
+
+  async function transcribe(blob) {
+    const btn = document.getElementById('micBtn');
+    const input = document.getElementById('feedbackInput');
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', blob, 'recording.webm');
+
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Append to existing text
+        const existing = input.value.trim();
+        input.value = existing ? existing + ' ' + data.text : data.text;
+        input.focus();
+      } else {
+        const err = await res.json();
+        alert('Transcription failed: ' + (err.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Transcription failed: ' + err.message);
+    } finally {
+      btn.classList.remove('transcribing');
+      btn.textContent = '🎙';
+    }
+  }
+
+  async function submitDecision(decision) {
+    const feedback = document.getElementById('feedbackInput').value;
+    const slug = '<%= item.slug %>';
+
+    try {
+      const res = await fetch('/api/items/' + slug + '/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, feedback: feedback || undefined })
+      });
+
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Network error');
+    }
+  }
+</script>
+
+<%- include('layout-end') %>

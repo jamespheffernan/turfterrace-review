@@ -1,0 +1,45 @@
+<%- include('layout-start', { pageTitle: 'Dashboard' }) %>
+
+<div class="dashboard">
+  <div class="tabs">
+    <a href="/?tab=pending" class="tab <%= tab === 'pending' ? 'active' : '' %>">
+      Pending <span class="count"><%= counts.pending %></span>
+    </a>
+    <a href="/?tab=decided" class="tab <%= tab === 'decided' ? 'active' : '' %>">
+      Decided <span class="count"><%= counts.decided %></span>
+    </a>
+    <a href="/?tab=all" class="tab <%= tab === 'all' ? 'active' : '' %>">
+      All <span class="count"><%= counts.all %></span>
+    </a>
+  </div>
+
+  <% if (items.length === 0) { %>
+    <div class="empty-state">
+      <p>No <%= tab === 'all' ? '' : tab %> items yet.</p>
+    </div>
+  <% } else { %>
+    <div class="item-list">
+      <% items.forEach(item => { %>
+        <a href="/review/<%= item.slug %>" class="item-card">
+          <div class="item-card-header">
+            <h2 class="item-title"><%= item.title %></h2>
+            <% if (item.status === 'decided') { %>
+              <span class="badge badge-decided"><%= item.decision %></span>
+            <% } else { %>
+              <span class="badge badge-<%= item.status %>"><%= item.status %></span>
+            <% } %>
+          </div>
+          <div class="item-meta">
+            <span class="category"><%= item.category %></span>
+            <span class="date"><%= new Date(item.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></span>
+          </div>
+          <% if (item.feedback) { %>
+            <p class="item-feedback"><%= item.feedback %></p>
+          <% } %>
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<%- include('layout-end') %>

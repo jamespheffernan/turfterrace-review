@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Turf Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void: #06060e; --void-up: #0c0c1a;
+      --glass-border: rgba(255,255,255,0.08);
+      --text: rgba(255,255,255,0.88); --text-dim: rgba(255,255,255,0.5);
+      --text-muted: rgba(255,255,255,0.32);
+      --cyan: #00e5ff; --cyan-dim: rgba(0,229,255,0.15);
+      --cyan-glow: rgba(0,229,255,0.3);
+      --magenta: #ff006e; --violet: #8b5cf6;
+      --red: #ef4444;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Outfit', -apple-system, sans-serif;
+      background: var(--void);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-font-smoothing: antialiased;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Aurora background */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -30%;
+      width: 160%;
+      height: 160%;
+      background:
+        radial-gradient(ellipse 70% 50% at 30% 20%, rgba(0, 229, 255, 0.18) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 70% at 75% 30%, rgba(139, 92, 246, 0.14) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 50% 85%, rgba(255, 0, 110, 0.1) 0%, transparent 50%),
+        radial-gradient(ellipse 35% 35% at 80% 70%, rgba(0, 229, 255, 0.08) 0%, transparent 45%);
+      z-index: 0;
+      pointer-events: none;
+      animation: aurora 20s ease-in-out infinite alternate;
+    }
+
+    @keyframes aurora {
+      0%   { transform: translate(0, 0) rotate(0deg) scale(1); }
+      33%  { transform: translate(4%, -3%) rotate(1.5deg) scale(1.03); }
+      66%  { transform: translate(-3%, 4%) rotate(-1deg) scale(0.97); }
+      100% { transform: translate(2%, -2%) rotate(0.5deg) scale(1.01); }
+    }
+
+    /* Noise */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* Glass card */
+    .login-card {
+      background: rgba(12, 12, 30, 0.55);
+      backdrop-filter: blur(24px) saturate(1.3);
+      -webkit-backdrop-filter: blur(24px) saturate(1.3);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 48px 42px;
+      width: 100%;
+      max-width: 420px;
+      margin: 20px;
+      position: relative;
+      z-index: 1;
+      box-shadow:
+        0 0 60px rgba(0, 229, 255, 0.04),
+        0 24px 80px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Shine edge on glass card */
+    .login-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 20px;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), transparent 40%, transparent 60%, rgba(139, 92, 246, 0.1));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      color: var(--text);
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+      letter-spacing: -0.03em;
+      text-transform: uppercase;
+    }
+
+    h1 span {
+      background: linear-gradient(135deg, var(--cyan), var(--violet));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 32px;
+      font-weight: 300;
+    }
+
+    label {
+      display: block;
+      font-weight: 500;
+      color: var(--text-dim);
+      font-size: 0.78rem;
+      margin-bottom: 6px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 13px 18px;
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.95rem;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      outline: none;
+      margin-bottom: 20px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    input::placeholder {
+      color: var(--text-muted);
+    }
+
+    input:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.12), 0 0 20px rgba(0, 229, 255, 0.06);
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--cyan), #00b4d8);
+      color: #06060e;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.15s, box-shadow 0.3s, filter 0.3s;
+      box-shadow: 0 4px 24px rgba(0, 229, 255, 0.25);
+    }
+
+    button::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 40px rgba(0, 229, 255, 0.35);
+      filter: brightness(1.1);
+    }
+
+    button:active {
+      transform: translateY(0) scale(0.97);
+      box-shadow: 0 2px 12px rgba(0, 229, 255, 0.2);
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--red);
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    /* Floating orb decorations */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(60px);
+    }
+    .orb-1 {
+      width: 300px; height: 300px;
+      background: rgba(0, 229, 255, 0.08);
+      top: 10%; left: 5%;
+      animation: float1 18s ease-in-out infinite;
+    }
+    .orb-2 {
+      width: 250px; height: 250px;
+      background: rgba(139, 92, 246, 0.08);
+      top: 60%; right: 8%;
+      animation: float2 22s ease-in-out infinite;
+    }
+    .orb-3 {
+      width: 200px; height: 200px;
+      background: rgba(255, 0, 110, 0.06);
+      bottom: 15%; left: 30%;
+      animation: float3 15s ease-in-out infinite;
+    }
+
+    @keyframes float1 {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(30px, -40px); }
+    }
+    @keyframes float2 {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(-25px, 35px); }
+    }
+    @keyframes float3 {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(20px, -30px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="login-card">
+    <h1>Turf <span>Review</span></h1>
+    <p class="subtitle">Sign in to continue</p>
+    <% if (error) { %>
+      <div class="error"><%= error %></div>
+    <% } %>
+    <form method="POST" action="/login" autocomplete="on">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>
