@@ -646,10 +646,26 @@
     const slug = '<%= item.slug %>';
     document.querySelectorAll('.btn-action').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
     try {
+      // Fetch inline annotations and bundle into feedback
+      let fullFeedback = feedback;
+      try {
+        const annRes = await fetch('/api/items/' + slug + '/annotations');
+        if (annRes.ok) {
+          const annotations = await annRes.json();
+          if (annotations.length > 0) {
+            const annText = annotations.map(function(a) {
+              if (a.anchor_type === 'image') return '• [Image ' + (a.anchor_ref || '') + '] → ' + a.comment;
+              return '• "' + (a.quote || '').substring(0, 80) + (a.quote && a.quote.length > 80 ? '…' : '') + '" → ' + a.comment;
+            }).join('\n');
+            fullFeedback = (fullFeedback ? fullFeedback + '\n\n' : '') + '--- Inline Annotations ---\n' + annText;
+          }
+        }
+      } catch(e) { /* annotations fetch failed, proceed without */ }
+
       const res = await fetch('/api/items/' + slug + '/decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, feedback: feedback || undefined })
+        body: JSON.stringify({ decision, feedback: fullFeedback || undefined })
       });
       if (res.ok) {
         window.location.reload();
