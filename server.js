@@ -105,6 +105,21 @@ try { db.exec('ALTER TABLE items ADD COLUMN approval_message TEXT'); } catch(e) 
 try { db.exec('ALTER TABLE items ADD COLUMN approval_exit_code INTEGER'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN approval_updated_at TEXT'); } catch(e) {}
 
+// --- Annotations table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS annotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    quote TEXT,
+    anchor_type TEXT NOT NULL DEFAULT 'text',
+    anchor_ref TEXT,
+    comment TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (slug) REFERENCES items(slug)
+  )
+`);
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_annotations_slug ON annotations(slug)'); } catch(e) {}
+
 // C4: Durable decision outbox — notifications survive OpenClaw downtime
 db.exec(`
   CREATE TABLE IF NOT EXISTS decision_outbox (
@@ -932,6 +947,37 @@ app.post('/api/upload-base64', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// --- Annotation endpoints ---
+app.post('/api/items/:slug/annotate', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+
+  const { quote, anchor_type, anchor_ref, comment } = req.body;
+  if (!comment || !comment.trim()) {
+    return res.status(400).json({ error: 'comment is required' });
+  }
+
+  const type = anchor_type === 'image' ? 'image' : 'text';
+  const result = db.prepare(`
+    INSERT INTO annotations (slug, quote, anchor_type, anchor_ref, comment)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(req.params.slug, quote || null, type, anchor_ref || null, comment.trim());
+
+  const annotation = db.prepare('SELECT * FROM annotations WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(annotation);
+});
+
+app.get('/api/items/:slug/annotations', (req, res) => {
+  const annotations = db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(req.params.slug);
+  res.json(annotations);
+});
+
+app.delete('/api/items/:slug/annotations/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM annotations WHERE id = ? AND slug = ?').run(req.params.id, req.params.slug);
+  if (result.changes === 0) return res.status(404).json({ error: 'Annotation not found' });
+  res.json({ deleted: true });
 });
 
 // --- Regenerate context audio ---

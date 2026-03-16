@@ -1096,3 +1096,291 @@ main {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===================================================
+   INLINE ANNOTATIONS
+   =================================================== */
+
+/* --- Annotation highlight on text --- */
+mark.annotation-highlight {
+  background: rgba(192, 96, 48, 0.12);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+mark.annotation-highlight:hover {
+  background: rgba(192, 96, 48, 0.22);
+}
+
+/* --- Annotation popover --- */
+.annotation-popover {
+  position: absolute;
+  z-index: 500;
+  width: 300px;
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(42, 37, 32, 0.14);
+  padding: 12px 14px;
+  animation: slideUp 0.12s ease-out;
+}
+
+.annotation-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotation-popover input[type="text"] {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'Libre Franklin', sans-serif;
+  font-size: 0.85rem;
+  background: var(--bg-paper);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.annotation-popover input[type="text"]:focus {
+  border-color: var(--terracotta);
+  box-shadow: 0 0 0 2px rgba(192, 96, 48, 0.1);
+}
+
+.annotation-popover input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+.annotation-popover-submit {
+  padding: 8px 12px;
+  background: var(--terracotta);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-family: 'Libre Franklin', sans-serif;
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.annotation-popover-submit:hover {
+  background: #a85028;
+}
+
+.annotation-popover-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.annotation-popover-cancel:hover {
+  color: var(--text);
+}
+
+/* --- Mic pulse dot --- */
+.mic-pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  animation: micPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* --- Annotation tooltip (on highlight hover) --- */
+.annotation-tooltip {
+  position: absolute;
+  z-index: 501;
+  background: var(--text);
+  color: var(--bg-paper);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-family: 'Libre Franklin', sans-serif;
+  max-width: 260px;
+  line-height: 1.4;
+  pointer-events: none;
+  animation: fadeIn 0.12s ease-out;
+  box-shadow: 0 4px 12px rgba(42, 37, 32, 0.2);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --- Annotation detail popover (click on highlight) --- */
+.annotation-detail {
+  position: absolute;
+  z-index: 502;
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(42, 37, 32, 0.12);
+  padding: 12px 14px;
+  width: 280px;
+  animation: slideUp 0.12s ease-out;
+}
+
+.annotation-detail-comment {
+  font-family: 'Lora', serif;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.annotation-detail-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.annotation-detail-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.annotation-detail-delete {
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.annotation-detail-delete:hover {
+  background: var(--red-soft);
+}
+
+/* --- Image annotation button --- */
+.rendered-content .img-annotation-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.img-annotate-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  color: var(--terracotta);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 2px 8px rgba(42, 37, 32, 0.1);
+  z-index: 10;
+}
+
+.img-annotation-wrap:hover .img-annotate-btn {
+  opacity: 1;
+}
+
+.img-annotate-btn:hover {
+  background: var(--terracotta);
+  color: #fff;
+}
+
+/* --- Image annotation badge --- */
+.img-annotation-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--terracotta);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(192, 96, 48, 0.3);
+}
+
+/* --- Image annotation list popover --- */
+.img-annotation-list {
+  position: absolute;
+  z-index: 502;
+  top: 38px;
+  right: 8px;
+  width: 260px;
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(42, 37, 32, 0.12);
+  padding: 10px;
+  animation: slideUp 0.12s ease-out;
+}
+
+.img-annotation-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.img-annotation-list-item:last-child {
+  border-bottom: none;
+}
+
+.img-annotation-list-comment {
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.img-annotation-list-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.img-annotation-list-delete:hover {
+  color: var(--red);
+}
+
+/* Mobile: always show image annotation buttons */
+@media (max-width: 900px) {
+  .img-annotate-btn {
+    opacity: 1;
+  }
+}
