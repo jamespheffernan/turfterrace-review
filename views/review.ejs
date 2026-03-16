@@ -151,6 +151,15 @@
 <% } %>
 
 <script>
+  // Wrap tables in scrollable container
+  document.querySelectorAll('.rendered-content table').forEach(function(t) {
+    if (t.parentElement.classList.contains('table-wrap')) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    t.parentNode.insertBefore(wrap, t);
+    wrap.appendChild(t);
+  });
+
   let mediaRecorder = null;
   let audioChunks = [];
   let isRecording = false;

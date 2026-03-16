@@ -363,10 +363,16 @@ main {
   color: inherit;
 }
 
+.rendered-content .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.6em 0;
+}
+
 .rendered-content table {
+  min-width: 600px;
   width: 100%;
   border-collapse: collapse;
-  margin: 1.6em 0;
   font-size: 0.9rem;
   font-family: 'Libre Franklin', sans-serif;
 }
