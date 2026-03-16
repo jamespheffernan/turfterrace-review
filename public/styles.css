@@ -587,8 +587,8 @@ main {
 }
 
 .btn-fab {
-  width: 80px;
-  height: 80px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -601,8 +601,8 @@ main {
 }
 
 .btn-fab svg {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
 }
 
 .btn-fab:hover {
