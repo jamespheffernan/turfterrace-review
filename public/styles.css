@@ -1378,6 +1378,52 @@ mark.annotation-highlight:hover {
   color: var(--red);
 }
 
+/* === Hide floating buttons when desktop sidebar is visible === */
+@media (min-width: 901px) {
+  .floating-buttons {
+    display: none;
+  }
+}
+
+/* === Sidebar Dictate Button === */
+.sidebar-dictate-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--terracotta);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Libre Franklin', sans-serif;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sidebar-dictate-btn:hover {
+  background: #a85028;
+}
+
+.sidebar-dictate-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.sidebar-dictate-btn.listening {
+  background: #8a4020;
+  animation: pulse-fab 1.5s ease-in-out infinite;
+}
+
+.sidebar-dictate-btn.transcribing {
+  background: var(--amber);
+  opacity: 0.8;
+}
+
 /* Mobile: always show image annotation buttons */
 @media (max-width: 900px) {
   .img-annotate-btn {

@@ -72,6 +72,10 @@
     <div class="action-sidebar-feedback">
       <label class="feedback-label" for="sidebarFeedback">Feedback</label>
       <textarea id="sidebarFeedback" placeholder="Add feedback (optional)" class="feedback-textarea" rows="4" oninput="syncAllFeedback(this.value)"></textarea>
+      <button type="button" id="sidebarDictateBtn" class="sidebar-dictate-btn" onclick="toggleSidebarDictation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span>Dictate feedback</span>
+      </button>
     </div>
   </div>
 </aside>
@@ -247,6 +251,395 @@
       btn.classList.remove('listening', 'transcribing');
     }
   }
+
+  /* === Sidebar Dictate Button === */
+  function toggleSidebarDictation() {
+    const btn = document.getElementById('sidebarDictateBtn');
+    if (!btn) return;
+    if (isRecording) {
+      stopSidebarRecording();
+    } else {
+      startSidebarRecording();
+    }
+  }
+
+  async function startSidebarRecording() {
+    const btn = document.getElementById('sidebarDictateBtn');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      audioChunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        await transcribeSidebar(blob);
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      btn.classList.add('listening');
+      btn.querySelector('span').textContent = 'Listening\u2026';
+    } catch (err) {
+      alert('Microphone access denied');
+    }
+  }
+
+  function stopSidebarRecording() {
+    const btn = document.getElementById('sidebarDictateBtn');
+    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+    isRecording = false;
+    btn.classList.remove('listening');
+    btn.classList.add('transcribing');
+    btn.querySelector('span').textContent = 'Transcribing\u2026';
+  }
+
+  async function transcribeSidebar(blob) {
+    const btn = document.getElementById('sidebarDictateBtn');
+    try {
+      const formData = new FormData();
+      formData.append('audio', blob, 'recording.webm');
+      const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        const textarea = document.getElementById('sidebarFeedback');
+        if (textarea) {
+          textarea.value = textarea.value.trim() ? textarea.value + ' ' + data.text : data.text;
+          syncAllFeedback(textarea.value);
+        }
+      } else {
+        const err = await res.json();
+        if (window.showToast) window.showToast('Transcription failed: ' + (err.error || 'Unknown'), { error: true });
+        else alert('Transcription failed: ' + (err.error || 'Unknown'));
+      }
+    } catch (err) {
+      if (window.showToast) window.showToast('Transcription failed: ' + err.message, { error: true });
+      else alert('Transcription failed: ' + err.message);
+    } finally {
+      btn.classList.remove('listening', 'transcribing');
+      btn.querySelector('span').textContent = 'Dictate feedback';
+    }
+  }
+
+  /* === Annotation Frontend === */
+  const SLUG = '<%= item.slug %>';
+  let activePopover = null;
+  let activeTooltip = null;
+  let activeDetail = null;
+  let speechRec = null;
+
+  function dismissAnnotationUI() {
+    if (activePopover) { activePopover.remove(); activePopover = null; }
+    if (activeTooltip) { activeTooltip.remove(); activeTooltip = null; }
+    if (activeDetail) { activeDetail.remove(); activeDetail = null; }
+    if (speechRec) { try { speechRec.abort(); } catch(e){} speechRec = null; }
+  }
+
+  // -- Load existing annotations on page load --
+  async function loadAnnotations() {
+    try {
+      const res = await fetch('/api/items/' + SLUG + '/annotations');
+      if (!res.ok) return;
+      const annotations = await res.json();
+      annotations.forEach(renderAnnotation);
+    } catch(e) { /* silent */ }
+  }
+
+  function renderAnnotation(ann) {
+    if (ann.anchor_type === 'text') {
+      highlightText(ann);
+    } else if (ann.anchor_type === 'image') {
+      renderImageAnnotation(ann);
+    }
+  }
+
+  // -- Text highlight --
+  function highlightText(ann) {
+    const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
+    if (!container) return;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const idx = node.textContent.indexOf(ann.quote);
+      if (idx === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + ann.quote.length);
+      const mark = document.createElement('mark');
+      mark.className = 'annotation-highlight';
+      mark.dataset.annotationId = ann.id;
+      mark.dataset.comment = ann.comment || '';
+      mark.dataset.createdAt = ann.created_at || '';
+      range.surroundContents(mark);
+      break;
+    }
+  }
+
+  // -- Image annotations --
+  function renderImageAnnotation(ann) {
+    const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
+    if (!container) return;
+    const imgs = container.querySelectorAll('img');
+    imgs.forEach(function(img) {
+      if (ann.anchor_ref && img.src.indexOf(ann.anchor_ref.replace('img:', '')) === -1) return;
+      const wrap = ensureImgWrap(img);
+      // Add or update badge
+      let badge = wrap.querySelector('.img-annotation-badge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'img-annotation-badge';
+        badge.dataset.annotations = '[]';
+        wrap.appendChild(badge);
+      }
+      const existing = JSON.parse(badge.dataset.annotations);
+      existing.push(ann);
+      badge.dataset.annotations = JSON.stringify(existing);
+      badge.textContent = existing.length;
+      badge.onclick = function(e) { e.stopPropagation(); showImgAnnotationList(badge, existing); };
+    });
+  }
+
+  function ensureImgWrap(img) {
+    if (img.parentElement.classList.contains('img-annotation-wrap')) return img.parentElement;
+    const wrap = document.createElement('span');
+    wrap.className = 'img-annotation-wrap';
+    img.parentElement.insertBefore(wrap, img);
+    wrap.appendChild(img);
+    // Add annotate button
+    const btn = document.createElement('button');
+    btn.className = 'img-annotate-btn';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+    btn.onclick = function(e) { e.stopPropagation(); showImagePopover(btn, img); };
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function showImgAnnotationList(badge, annotations) {
+    dismissAnnotationUI();
+    const list = document.createElement('div');
+    list.className = 'img-annotation-list';
+    annotations.forEach(function(ann) {
+      const item = document.createElement('div');
+      item.className = 'img-annotation-list-item';
+      item.innerHTML = '<span class="img-annotation-list-comment">' + escapeHtml(ann.comment || '') + '</span>' +
+        '<button class="img-annotation-list-delete" title="Delete">\u00d7</button>';
+      item.querySelector('.img-annotation-list-delete').onclick = function(e) {
+        e.stopPropagation();
+        deleteAnnotation(ann.id).then(function() { item.remove(); });
+      };
+      list.appendChild(item);
+    });
+    badge.parentElement.appendChild(list);
+    activeDetail = list;
+    setTimeout(function() {
+      document.addEventListener('click', function handler() {
+        if (list.parentElement) list.remove();
+        activeDetail = null;
+        document.removeEventListener('click', handler);
+      }, { once: true });
+    }, 0);
+  }
+
+  function showImagePopover(anchorBtn, img) {
+    dismissAnnotationUI();
+    const rect = anchorBtn.getBoundingClientRect();
+    const pop = createPopover();
+    pop.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+    pop.style.left = (rect.right + window.scrollX - 300) + 'px';
+    document.body.appendChild(pop);
+    activePopover = pop;
+    const input = pop.querySelector('input[type="text"]');
+    input.focus();
+    const isMobile = window.innerWidth < 900;
+    if (!isMobile) startSpeechRecognition(input, pop);
+    setupPopoverHandlers(pop, input, function(comment) {
+      const anchor_ref = 'img:' + (img.getAttribute('src') || '');
+      return submitAnnotation('', 'image', anchor_ref, comment);
+    });
+  }
+
+  // -- Text selection → popover --
+  (function() {
+    const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
+    if (!container) return;
+    container.addEventListener('mouseup', function(e) {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+      // Don't open if clicking on an existing highlight
+      if (e.target.closest && e.target.closest('.annotation-highlight')) return;
+      const quote = sel.toString().trim();
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      dismissAnnotationUI();
+      const pop = createPopover();
+      pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+      pop.style.left = Math.max(8, rect.left + window.scrollX + (rect.width / 2) - 150) + 'px';
+      document.body.appendChild(pop);
+      activePopover = pop;
+      const input = pop.querySelector('input[type="text"]');
+      input.focus();
+      // Compute char offset
+      const offset = getCharOffset(container, range);
+      const isMobile = window.innerWidth < 900;
+      if (!isMobile) startSpeechRecognition(input, pop);
+      setupPopoverHandlers(pop, input, function(comment) {
+        sel.removeAllRanges();
+        return submitAnnotation(quote, 'text', 'char:' + offset, comment);
+      });
+    });
+
+    // Click on existing highlight → detail
+    container.addEventListener('click', function(e) {
+      const mark = e.target.closest('.annotation-highlight');
+      if (!mark) return;
+      dismissAnnotationUI();
+      const rect = mark.getBoundingClientRect();
+      const detail = document.createElement('div');
+      detail.className = 'annotation-detail';
+      detail.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      detail.style.left = Math.max(8, rect.left + window.scrollX) + 'px';
+      const dateStr = mark.dataset.createdAt ? new Date(mark.dataset.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+      detail.innerHTML =
+        '<div class="annotation-detail-comment">' + escapeHtml(mark.dataset.comment || '(no comment)') + '</div>' +
+        '<div class="annotation-detail-meta">' +
+          '<span class="annotation-detail-date">' + dateStr + '</span>' +
+          '<button class="annotation-detail-delete">Delete</button>' +
+        '</div>';
+      detail.querySelector('.annotation-detail-delete').onclick = function() {
+        deleteAnnotation(mark.dataset.annotationId).then(function() {
+          // Unwrap mark
+          const parent = mark.parentNode;
+          while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+          mark.remove();
+          detail.remove();
+          activeDetail = null;
+        });
+      };
+      document.body.appendChild(detail);
+      activeDetail = detail;
+      e.stopPropagation();
+      setTimeout(function() {
+        document.addEventListener('click', function handler(ev) {
+          if (detail.contains(ev.target)) return;
+          detail.remove();
+          activeDetail = null;
+          document.removeEventListener('click', handler);
+        });
+      }, 0);
+    });
+
+    // Wrap images for annotation
+    container.querySelectorAll('img').forEach(function(img) {
+      ensureImgWrap(img);
+    });
+  })();
+
+  function createPopover() {
+    const pop = document.createElement('div');
+    pop.className = 'annotation-popover';
+    pop.innerHTML =
+      '<div class="annotation-popover-row">' +
+        '<span class="mic-pulse-dot" style="display:none;"></span>' +
+        '<input type="text" placeholder="Say or type your note\u2026" autocomplete="off">' +
+        '<button class="annotation-popover-submit">Save</button>' +
+        '<button class="annotation-popover-cancel">\u00d7</button>' +
+      '</div>';
+    return pop;
+  }
+
+  function setupPopoverHandlers(pop, input, onSubmit) {
+    const cancelBtn = pop.querySelector('.annotation-popover-cancel');
+    const submitBtn = pop.querySelector('.annotation-popover-submit');
+
+    cancelBtn.onclick = function() { dismissAnnotationUI(); };
+
+    async function doSubmit() {
+      const comment = input.value.trim();
+      if (!comment) { input.focus(); return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = '\u2026';
+      try {
+        await onSubmit(comment);
+      } finally {
+        dismissAnnotationUI();
+      }
+    }
+
+    submitBtn.onclick = doSubmit;
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); doSubmit(); }
+      if (e.key === 'Escape') { dismissAnnotationUI(); }
+      // If user types, kill speech recognition
+      if (speechRec && e.key.length === 1) {
+        try { speechRec.abort(); } catch(ex){} speechRec = null;
+        const dot = pop.querySelector('.mic-pulse-dot');
+        if (dot) dot.style.display = 'none';
+      }
+    });
+  }
+
+  function startSpeechRecognition(input, pop) {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    speechRec = new SpeechRec();
+    speechRec.lang = 'en-GB';
+    speechRec.continuous = false;
+    speechRec.interimResults = true;
+    const dot = pop.querySelector('.mic-pulse-dot');
+    if (dot) dot.style.display = 'inline-block';
+    speechRec.onresult = function(ev) {
+      let transcript = '';
+      for (let i = 0; i < ev.results.length; i++) {
+        transcript += ev.results[i][0].transcript;
+      }
+      if (transcript) input.value = transcript;
+    };
+    speechRec.onend = function() {
+      if (dot) dot.style.display = 'none';
+      speechRec = null;
+    };
+    speechRec.onerror = function() {
+      if (dot) dot.style.display = 'none';
+      speechRec = null;
+    };
+    try { speechRec.start(); } catch(e) { speechRec = null; }
+  }
+
+  function getCharOffset(container, range) {
+    const preRange = document.createRange();
+    preRange.setStart(container, 0);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    return preRange.toString().length;
+  }
+
+  async function submitAnnotation(quote, anchor_type, anchor_ref, comment) {
+    const res = await fetch('/api/items/' + SLUG + '/annotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quote: quote, anchor_type: anchor_type, anchor_ref: anchor_ref, comment: comment })
+    });
+    if (res.ok) {
+      const ann = await res.json();
+      renderAnnotation(ann);
+    }
+  }
+
+  async function deleteAnnotation(id) {
+    await fetch('/api/items/' + SLUG + '/annotate/' + id, { method: 'DELETE' });
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  // Close annotation UI on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') dismissAnnotationUI();
+  });
+
+  // Load annotations on page ready
+  loadAnnotations();
 
   async function submitDecision(decision) {
     const feedback = (document.getElementById('feedbackInput') || document.getElementById('sidebarFeedback') || {}).value || '';
