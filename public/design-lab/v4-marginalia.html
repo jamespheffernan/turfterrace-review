@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V4 — Marginalia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&family=Spline+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f9f7f3;
+  --bg-margin: #f2efe8;
+  --bg-white: #fff;
+  --border: #d9d3c7;
+  --border-light: #e9e4da;
+  --text: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #a8a29e;
+  --sienna: #92400e;
+  --sienna-soft: rgba(146, 64, 14, 0.06);
+  --forest: #365314;
+  --forest-soft: rgba(54, 83, 20, 0.06);
+  --stone: #78716c;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Spline Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* === HEADER — minimal bar === */
+.site-header {
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo {
+  font-family: 'Newsreader', serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.header-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.header-tab {
+  padding: 5px 12px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.header-tab:hover { background: var(--bg-margin); color: var(--text-secondary); }
+.header-tab.active { background: var(--sienna-soft); color: var(--sienna); font-weight: 600; }
+
+/* === MAIN === */
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px 120px;
+}
+
+/* === DASHBOARD — two-column on desktop === */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--stone);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.item-list { display: flex; flex-direction: column; }
+
+.item-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  text-decoration: none;
+  color: inherit;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-light);
+  transition: all 0.1s;
+}
+
+.item-card:hover { background: var(--bg-margin); margin: 0 -12px; padding: 14px 12px; border-radius: 4px; }
+
+.item-title {
+  font-family: 'Newsreader', serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.category {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sienna);
+}
+
+.item-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--stone);
+}
+
+.item-status.decided { color: var(--forest); }
+
+.item-feedback {
+  grid-column: 1 / -1;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: 'Newsreader', serif;
+  margin-top: -4px;
+}
+
+.empty-state {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: 'Newsreader', serif;
+  font-style: italic;
+}
+
+/* === REVIEW PAGE — Tufte-inspired margins === */
+.review-layout {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  gap: 40px;
+  align-items: start;
+}
+
+.review-main { min-width: 0; }
+
+.review-sidebar {
+  position: sticky;
+  top: 80px;
+  padding-top: 8px;
+}
+
+.sidebar-block {
+  margin-bottom: 24px;
+}
+
+.sidebar-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--stone);
+  margin-bottom: 4px;
+}
+
+.sidebar-value {
+  font-family: 'Newsreader', serif;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.review-header {
+  margin-bottom: 40px;
+}
+
+.review-header h1 {
+  font-family: 'Newsreader', serif;
+  font-size: 2.4rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.feedback-display {
+  background: var(--sienna-soft);
+  border-left: 2px solid var(--sienna);
+  padding: 12px 16px;
+  margin-bottom: 36px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+/* === RENDERED MARKDOWN — Tufte-influenced === */
+.rendered-content {
+  font-family: 'Newsreader', serif;
+  font-size: 1.12rem;
+  line-height: 1.85;
+  color: var(--text);
+  font-optical-sizing: auto;
+}
+
+.rendered-content h1,
+.rendered-content h2,
+.rendered-content h3 {
+  font-family: 'Newsreader', serif;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.rendered-content h1 {
+  font-size: 1.8rem;
+  font-weight: 600;
+  margin-top: 2.4em;
+  margin-bottom: 0.5em;
+}
+
+.rendered-content h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 2.2em;
+  margin-bottom: 0.5em;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.rendered-content h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.6em;
+  margin-bottom: 0.4em;
+  font-style: italic;
+}
+
+.rendered-content p { margin-bottom: 1.3em; }
+
+.rendered-content a {
+  color: var(--sienna);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(146, 64, 14, 0.25);
+}
+.rendered-content a:hover { border-bottom-color: var(--sienna); }
+
+.rendered-content blockquote {
+  margin: 1.6em 0;
+  padding: 0 0 0 24px;
+  border-left: 2px solid var(--border);
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+}
+
+.rendered-content ul, .rendered-content ol {
+  margin-bottom: 1.3em;
+  padding-left: 1.3em;
+}
+
+.rendered-content li { margin-bottom: 0.35em; }
+
+.rendered-content code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8em;
+  background: var(--bg-margin);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+.rendered-content pre {
+  background: #1c1917;
+  color: #e7e5e4;
+  padding: 18px 22px;
+  overflow-x: auto;
+  margin: 1.8em 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  border-radius: 3px;
+}
+
+.rendered-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+.rendered-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.6em 0;
+  font-size: 0.88rem;
+  font-family: 'Spline Sans', sans-serif;
+}
+
+.rendered-content th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--text);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rendered-content td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.rendered-content img {
+  max-width: 100%;
+  margin: 1.6em 0;
+}
+
+.rendered-content hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 2.4em 0;
+}
+
+/* === ACTION BAR === */
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(249, 247, 243, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 12px 24px;
+  z-index: 100;
+}
+
+.action-form {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.feedback-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'Spline Sans', sans-serif;
+  font-size: 0.86rem;
+  background: var(--bg-white);
+  color: var(--text);
+  outline: none;
+}
+
+.feedback-input:focus { border-color: var(--sienna); }
+.feedback-input::placeholder { color: var(--text-muted); }
+
+.btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 6px;
+  font-family: 'Spline Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+
+.btn-action-0 { background: var(--text); color: var(--bg); }
+.btn-action-0:hover { background: #292524; }
+.btn-action-1 { background: var(--bg-white); color: var(--text); border: 1px solid var(--border); }
+.btn-action-1:hover { background: var(--bg-margin); }
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+  .review-layout { grid-template-columns: 1fr; gap: 0; }
+  .review-sidebar {
+    position: static;
+    display: flex;
+    gap: 20px;
+    padding: 12px 0;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border-light);
+    flex-wrap: wrap;
+  }
+  .sidebar-block { margin-bottom: 0; }
+}
+
+@media (max-width: 600px) {
+  main { padding: 24px 16px 140px; }
+  .review-header h1 { font-size: 1.8rem; }
+  .rendered-content { font-size: 1.05rem; }
+  .action-form { flex-direction: column; }
+  .action-form .btn { width: 100%; padding: 13px; text-align: center; }
+  .site-header { padding: 12px 16px; }
+  .header-tabs { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="#" class="logo">Turf Review</a>
+  <div class="header-tabs">
+    <a href="#" class="header-tab active">Pending 3</a>
+    <a href="#" class="header-tab">Decided 12</a>
+    <a href="#" class="header-tab">All</a>
+  </div>
+</header>
+
+<main>
+  <!-- DASHBOARD -->
+  <div class="dashboard-grid">
+    <div>
+      <div class="section-label">Pending Review</div>
+      <div class="item-list">
+        <a href="#review" class="item-card">
+          <div>
+            <h2 class="item-title">KitchenLux Q2 Campaign Brief</h2>
+            <div class="item-meta">
+              <span class="category">kitchenlux</span>
+              <span>Mar 7</span>
+            </div>
+          </div>
+          <span class="item-status">Pending</span>
+        </a>
+        <a href="#review" class="item-card">
+          <div>
+            <h2 class="item-title">Outreach Email Sequence v3</h2>
+            <div class="item-meta">
+              <span class="category">outreach</span>
+              <span>Mar 6</span>
+            </div>
+          </div>
+          <span class="item-status">Pending</span>
+        </a>
+        <a href="#review" class="item-card">
+          <div>
+            <h2 class="item-title">Woody Canyon A5 Flyer</h2>
+            <div class="item-meta">
+              <span class="category">kitchenlux</span>
+              <span>Mar 5</span>
+            </div>
+          </div>
+          <span class="item-status decided">Approved</span>
+          <p class="item-feedback">"Looks great, ship it as-is."</p>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <hr style="margin: 56px 0; border: none; border-top: 1px solid var(--border-light);">
+
+  <!-- REVIEW PAGE — with sidebar -->
+  <article id="review">
+    <div class="review-layout">
+      <div class="review-main">
+        <div class="review-header">
+          <h1>KitchenLux Q2 Campaign Brief</h1>
+        </div>
+
+        <div class="rendered-content">
+          <h2>Campaign Overview</h2>
+          <p>The Q2 campaign will focus on our premium outdoor kitchen line, targeting homeowners who are actively planning backyard renovations. We'll emphasize the <strong>durability</strong> and <strong>design-forward aesthetics</strong> that differentiate KitchenLux from commodity alternatives.</p>
+
+          <blockquote>
+            "Every great outdoor kitchen starts with a conversation about how people actually live in their backyards." — internal positioning doc
+          </blockquote>
+
+          <h2>Target Audience</h2>
+          <p>Primary: homeowners aged 35-55 with household income above $150k, located in Sun Belt states. Secondary: landscape architects and high-end contractors who spec products for clients.</p>
+
+          <h3>Key Segments</h3>
+          <ul>
+            <li><strong>The Entertainer</strong> — hosts regularly, wants a showpiece</li>
+            <li><strong>The Chef</strong> — serious about cooking, needs professional-grade</li>
+            <li><strong>The Designer</strong> — cares about materials, finishes, coherence</li>
+          </ul>
+
+          <h2>Channel Strategy</h2>
+          <table>
+            <thead>
+              <tr><th>Channel</th><th>Budget</th><th>ROAS</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Meta (Instagram/FB)</td><td>$45,000</td><td>3.2x</td></tr>
+              <tr><td>Google Search</td><td>$30,000</td><td>4.1x</td></tr>
+              <tr><td>Pinterest</td><td>$15,000</td><td>2.8x</td></tr>
+              <tr><td>Email nurture</td><td>$5,000</td><td>6.5x</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Timeline</h2>
+          <p>Creative production begins <strong>April 1</strong>. First ads live by <strong>April 15</strong>. Full campaign runs through <strong>June 30</strong> with a mid-flight optimization checkpoint on May 15.</p>
+
+          <pre><code>// Campaign tracking setup
+const utm = {
+  source: 'meta',
+  medium: 'paid-social',
+  campaign: 'kitchenlux-q2-2026',
+  content: variant.id
+};</code></pre>
+
+          <hr>
+
+          <p><em>Please review the above brief and approve, request changes, or reject.</em></p>
+        </div>
+      </div>
+
+      <aside class="review-sidebar">
+        <div class="sidebar-block">
+          <div class="sidebar-label">Category</div>
+          <div class="sidebar-value">KitchenLux</div>
+        </div>
+        <div class="sidebar-block">
+          <div class="sidebar-label">Submitted</div>
+          <div class="sidebar-value">March 7, 2026</div>
+        </div>
+        <div class="sidebar-block">
+          <div class="sidebar-label">Status</div>
+          <div class="sidebar-value" style="color: var(--sienna); font-weight: 500;">Pending</div>
+        </div>
+      </aside>
+    </div>
+  </article>
+</main>
+
+<div class="action-bar">
+  <div class="action-form">
+    <input type="text" placeholder="Add feedback (optional)" class="feedback-input">
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-action-0">Approve</button>
+      <button class="btn btn-action-1">Request Changes</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
