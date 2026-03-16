@@ -461,11 +461,11 @@
   (function() {
     const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
     if (!container) return;
-    container.addEventListener('mouseup', function(e) {
+    function handleTextSelection(e) {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
       // Don't open if clicking on an existing highlight
-      if (e.target.closest && e.target.closest('.annotation-highlight')) return;
+      if (e.target && e.target.closest && e.target.closest('.annotation-highlight')) return;
       const quote = sel.toString().trim();
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
@@ -485,6 +485,14 @@
         sel.removeAllRanges();
         return submitAnnotation(quote, 'text', 'char:' + offset, comment);
       });
+    }
+    container.addEventListener('mouseup', handleTextSelection);
+    // Mobile: touchend after selection
+    let touchSelTimer = null;
+    container.addEventListener('touchend', function(e) {
+      clearTimeout(touchSelTimer);
+      // Delay slightly to let mobile selection settle
+      touchSelTimer = setTimeout(function() { handleTextSelection(e); }, 300);
     });
 
     // Click on existing highlight → detail
