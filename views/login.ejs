@@ -96,11 +96,14 @@
       color: var(--text);
       outline: none;
       margin-bottom: 20px;
-      transition: border-color 0.2s;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
     }
 
     input::placeholder { color: var(--text-muted); }
-    input:focus { border-color: var(--terracotta); }
+    input:focus {
+      border-color: var(--terracotta);
+      box-shadow: 0 0 0 3px rgba(192, 96, 48, 0.1);
+    }
 
     button {
       width: 100%;
@@ -116,8 +119,33 @@
       transition: all 0.15s;
     }
 
-    button:hover { background: #a85028; transform: translateY(-1px); }
-    button:active { transform: translateY(0); }
+    button:hover {
+      background: #a85028;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(192, 96, 48, 0.2);
+    }
+    button:active {
+      transform: translateY(0) scale(0.98);
+      transition-duration: 0.08s;
+    }
+
+    /* Login card entrance */
+    @keyframes loginEnter {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .login-card {
+      animation: loginEnter 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
 
     .error {
       background: var(--red-soft);

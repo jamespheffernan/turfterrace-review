@@ -1,5 +1,6 @@
 <%- include('layout-start', { pageTitle: item.title }) %>
 
+<div class="review-layout">
 <article class="review-page">
   <div class="review-header">
     <div class="review-meta">
@@ -58,7 +59,41 @@
 </article>
 
 <% if (item.status === 'pending') { %>
-<!-- Inline action buttons after content (the original layout) -->
+<!-- Desktop: sticky sidebar -->
+<aside class="action-sidebar">
+  <div class="action-sidebar-inner">
+    <div class="action-sidebar-buttons">
+      <% actions.forEach(function(action, i) { %>
+        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+          <%= action %>
+        </button>
+      <% }); %>
+    </div>
+    <div class="action-sidebar-feedback">
+      <label class="feedback-label" for="sidebarFeedback">Feedback</label>
+      <textarea id="sidebarFeedback" placeholder="Add feedback (optional)" class="feedback-textarea" rows="4" oninput="syncAllFeedback(this.value)"></textarea>
+    </div>
+  </div>
+</aside>
+<% } else { %>
+<!-- Desktop: decided sidebar -->
+<aside class="action-sidebar">
+  <div class="action-sidebar-inner">
+    <div class="decided-sidebar">
+      <div class="sidebar-label">Decision</div>
+      <div class="sidebar-decision"><%= item.decision || item.status %></div>
+      <% if (item.feedback) { %>
+        <div class="sidebar-label" style="margin-top: 16px;">Feedback</div>
+        <div class="sidebar-feedback-text">"<%= item.feedback %>"</div>
+      <% } %>
+    </div>
+  </div>
+</aside>
+<% } %>
+</div><!-- /.review-layout -->
+
+<% if (item.status === 'pending') { %>
+<!-- Mobile: inline action buttons after content -->
 <div class="action-bar">
   <div class="action-form">
     <div class="action-buttons">
@@ -116,10 +151,24 @@
   let audioChunks = [];
   let isRecording = false;
 
-  function syncFeedback(val) {
-    const main = document.getElementById('feedbackInput');
-    if (main) main.value = val;
+  function syncAllFeedback(val) {
+    ['feedbackInput', 'feedbackInputPanel', 'sidebarFeedback'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.value = val;
+    });
   }
+
+  function syncFeedback(val) {
+    syncAllFeedback(val);
+  }
+
+  // Keep sidebar textarea in sync with inline input
+  (function() {
+    var inline = document.getElementById('feedbackInput');
+    var sidebar = document.getElementById('sidebarFeedback');
+    if (inline) inline.addEventListener('input', function() { syncAllFeedback(this.value); });
+    if (sidebar) sidebar.addEventListener('input', function() { syncAllFeedback(this.value); });
+  })();
 
   function toggleDecisionPanel() {
     const panel = document.getElementById('decisionPanel');
@@ -200,7 +249,7 @@
   }
 
   async function submitDecision(decision) {
-    const feedback = (document.getElementById('feedbackInput') || {}).value || '';
+    const feedback = (document.getElementById('feedbackInput') || document.getElementById('sidebarFeedback') || {}).value || '';
     const slug = '<%= item.slug %>';
     document.querySelectorAll('.btn-action').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
     try {
