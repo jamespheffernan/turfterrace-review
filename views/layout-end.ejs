@@ -1,3 +1,28 @@
   </main>
+  <script>
+  // SSE live refresh — dashboard only (never reload review pages mid-dictation)
+  (function() {
+    if (typeof EventSource === 'undefined') return;
+    var isReviewPage = /^\/review\//.test(location.pathname);
+    if (isReviewPage) return; // Don't auto-refresh review screens
+    var es = new EventSource('/api/events');
+    es.addEventListener('new-item', function() { location.reload(); });
+    es.addEventListener('decision', function() { location.reload(); });
+    es.onerror = function() {};
+  })();
+
+  // Toast system
+  window.showToast = function(message, opts) {
+    opts = opts || {};
+    var el = document.createElement('div');
+    el.className = 'toast' + (opts.error ? ' toast-error' : '');
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(function() {
+      el.classList.add('toast-exit');
+      setTimeout(function() { el.remove(); }, 300);
+    }, opts.duration || 2500);
+  };
+  </script>
 </body>
 </html>

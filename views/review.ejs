@@ -20,9 +20,35 @@
     </div>
   <% } %>
 
+  <% if (item.approval_status === 'manual_required') { %>
+    <div class="approval-alert">⚠️ Manual task follow-up required</div>
+  <% } %>
+
+  <!-- Audio players -->
+  <% if (item.tts_status === 'ready' || item.context_audio_status === 'ready') { %>
+  <div class="audio-players">
+    <% if (item.tts_status === 'ready') { %>
+      <div class="tts-player">
+        <span class="audio-label">📖 Read aloud</span>
+        <audio controls preload="none">
+          <source src="/tts-cache/<%= item.slug %>.mp3" type="audio/mpeg">
+        </audio>
+      </div>
+    <% } %>
+    <% if (item.context_audio_status === 'ready') { %>
+      <div class="tts-player">
+        <span class="audio-label">💬 Context</span>
+        <audio controls preload="none">
+          <source src="/audio/<%= item.slug %>-context.mp3" type="audio/mpeg">
+        </audio>
+      </div>
+    <% } %>
+  </div>
+  <% } %>
+
   <% if (!item.markdown && (item.rendered_html.includes('<!DOCTYPE') || item.rendered_html.includes('<html'))) { %>
     <div class="rendered-content rendered-content--fullpage">
-      <iframe srcdoc="<%- item.rendered_html.replace(/"/g, '&quot;') %>" style="width:100%;min-height:80vh;border:1px solid #eee8d5;border-radius:4px;"></iframe>
+      <iframe srcdoc="<%- item.rendered_html.replace(/\"/g, '&quot;') %>" style="width:100%;min-height:80vh;border:1px solid var(--border-light);border-radius:4px;"></iframe>
     </div>
   <% } else { %>
     <div class="rendered-content">
@@ -32,12 +58,9 @@
 </article>
 
 <% if (item.status === 'pending') { %>
+<!-- Inline action buttons after content (the original layout) -->
 <div class="action-bar">
   <div class="action-form">
-    <div class="feedback-wrapper">
-      <input type="text" id="feedbackInput" placeholder="Add feedback (optional — or tap 🎙 to dictate)" class="feedback-input">
-      <button type="button" id="micBtn" class="btn-mic" onclick="toggleDictation()" title="Dictate feedback">🎙</button>
-    </div>
     <div class="action-buttons">
       <% actions.forEach(function(action, i) { %>
         <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
@@ -45,8 +68,40 @@
         </button>
       <% }); %>
     </div>
+    <div class="feedback-wrapper">
+      <input type="text" id="feedbackInput" placeholder="Add feedback (optional)" class="feedback-input">
+    </div>
   </div>
 </div>
+
+<!-- Floating buttons: mic + decision quick-access -->
+<div class="floating-buttons">
+  <button type="button" id="decisionFab" class="btn-fab btn-fab-decision" onclick="toggleDecisionPanel()" title="Quick decision">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+  </button>
+  <button type="button" id="micBtn" class="btn-fab btn-fab-mic" onclick="toggleDictation()" title="Dictate feedback">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+  </button>
+</div>
+
+<!-- Quick decision panel (slides up from floating button) -->
+<div id="decisionPanel" class="decision-panel" style="display:none;">
+  <div class="decision-panel-inner">
+    <div class="decision-panel-header">
+      <span>Quick Decision</span>
+      <button type="button" onclick="toggleDecisionPanel()" class="decision-panel-close">✕</button>
+    </div>
+    <div class="decision-panel-buttons">
+      <% actions.forEach(function(action, i) { %>
+        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+          <%= action %>
+        </button>
+      <% }); %>
+    </div>
+    <input type="text" id="feedbackInputPanel" placeholder="Feedback (optional)" class="feedback-input" oninput="syncFeedback(this.value)">
+  </div>
+</div>
+
 <% } else { %>
 <div class="action-bar action-bar--decided">
   <div class="decided-summary">
@@ -57,10 +112,30 @@
 <% } %>
 
 <script>
-  // Speech-to-text via OpenAI Whisper
   let mediaRecorder = null;
   let audioChunks = [];
   let isRecording = false;
+
+  function syncFeedback(val) {
+    const main = document.getElementById('feedbackInput');
+    if (main) main.value = val;
+  }
+
+  function toggleDecisionPanel() {
+    const panel = document.getElementById('decisionPanel');
+    const fab = document.getElementById('decisionFab');
+    if (panel.style.display === 'none') {
+      panel.style.display = 'block';
+      fab.classList.add('active');
+      // Sync feedback from main input
+      const panelInput = document.getElementById('feedbackInputPanel');
+      const mainInput = document.getElementById('feedbackInput');
+      if (panelInput && mainInput) panelInput.value = mainInput.value;
+    } else {
+      panel.style.display = 'none';
+      fab.classList.remove('active');
+    }
+  }
 
   function toggleDictation() {
     if (isRecording) {
@@ -75,88 +150,77 @@
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
       audioChunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunks.push(e.data);
-      };
-
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
         await transcribe(blob);
       };
-
       mediaRecorder.start();
       isRecording = true;
       const btn = document.getElementById('micBtn');
       btn.classList.add('listening');
-      btn.textContent = '⏹';
     } catch (err) {
       alert('Microphone access denied');
     }
   }
 
   function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-    }
+    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
     isRecording = false;
     const btn = document.getElementById('micBtn');
     btn.classList.remove('listening');
     btn.classList.add('transcribing');
-    btn.textContent = '⏳';
   }
 
   async function transcribe(blob) {
     const btn = document.getElementById('micBtn');
-    const input = document.getElementById('feedbackInput');
-
     try {
       const formData = new FormData();
       formData.append('audio', blob, 'recording.webm');
-
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
       if (res.ok) {
         const data = await res.json();
-        // Append to existing text
-        const existing = input.value.trim();
-        input.value = existing ? existing + ' ' + data.text : data.text;
-        input.focus();
+        const input = document.getElementById('feedbackInput');
+        const panelInput = document.getElementById('feedbackInputPanel');
+        const text = data.text;
+        if (input) input.value = input.value.trim() ? input.value + ' ' + text : text;
+        if (panelInput) panelInput.value = input ? input.value : text;
       } else {
         const err = await res.json();
-        alert('Transcription failed: ' + (err.error || 'Unknown error'));
+        if (window.showToast) window.showToast('Transcription failed: ' + (err.error || 'Unknown'), { error: true });
+        else alert('Transcription failed: ' + (err.error || 'Unknown'));
       }
     } catch (err) {
-      alert('Transcription failed: ' + err.message);
+      if (window.showToast) window.showToast('Transcription failed: ' + err.message, { error: true });
+      else alert('Transcription failed: ' + err.message);
     } finally {
-      btn.classList.remove('transcribing');
-      btn.textContent = '🎙';
+      btn.classList.remove('listening', 'transcribing');
     }
   }
 
   async function submitDecision(decision) {
-    const feedback = document.getElementById('feedbackInput').value;
+    const feedback = (document.getElementById('feedbackInput') || {}).value || '';
     const slug = '<%= item.slug %>';
-
+    document.querySelectorAll('.btn-action').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
     try {
       const res = await fetch('/api/items/' + slug + '/decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, feedback: feedback || undefined })
       });
-
       if (res.ok) {
         window.location.reload();
       } else {
         const data = await res.json();
-        alert('Error: ' + (data.error || 'Unknown error'));
+        if (window.showToast) window.showToast('Error: ' + (data.error || 'Unknown'), { error: true });
+        else alert('Error: ' + (data.error || 'Unknown'));
+        document.querySelectorAll('.btn-action').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
       }
     } catch (err) {
-      alert('Network error');
+      if (window.showToast) window.showToast('Network error', { error: true });
+      else alert('Network error');
+      document.querySelectorAll('.btn-action').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
     }
   }
 </script>

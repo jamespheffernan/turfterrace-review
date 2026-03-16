@@ -2,4 +2,4 @@ node_modules/
 data/*.db
 .env
 data/
-node_modules/
+tts-cache/
