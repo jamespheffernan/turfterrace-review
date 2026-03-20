@@ -1,5 +1,11 @@
 <%- include('layout-start', { pageTitle: item.title }) %>
 
+<!-- Sticky back button -->
+<a href="/" class="back-btn" title="Back to queue">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  <span>Queue</span>
+</a>
+
 <div class="review-layout">
 <article class="review-page">
   <div class="review-header">
@@ -459,7 +465,7 @@
     const input = pop.querySelector('input[type="text"]');
     input.focus();
     const isMobile = window.innerWidth < 900;
-    if (!isMobile) startSpeechRecognition(input, pop);
+    if (!isMobile && isAutoTranscribeEnabled()) startSpeechRecognition(input, pop);
     setupPopoverHandlers(pop, input, function(comment) {
       const anchor_ref = 'img:' + (img.getAttribute('src') || '');
       return submitAnnotation('', 'image', anchor_ref, comment);
@@ -489,7 +495,7 @@
       // Compute char offset
       const offset = getCharOffset(container, range);
       const isMobile = window.innerWidth < 900;
-      if (!isMobile) startSpeechRecognition(input, pop);
+      if (!isMobile && isAutoTranscribeEnabled()) startSpeechRecognition(input, pop);
       setupPopoverHandlers(pop, input, function(comment) {
         sel.removeAllRanges();
         return submitAnnotation(quote, 'text', 'char:' + offset, comment);
@@ -550,16 +556,46 @@
     });
   })();
 
+  function isAutoTranscribeEnabled() {
+    return localStorage.getItem('turf-auto-transcribe') !== 'off';
+  }
+  function setAutoTranscribe(on) {
+    localStorage.setItem('turf-auto-transcribe', on ? 'on' : 'off');
+  }
+
   function createPopover() {
     const pop = document.createElement('div');
     pop.className = 'annotation-popover';
+    const micOn = isAutoTranscribeEnabled();
     pop.innerHTML =
       '<div class="annotation-popover-row">' +
         '<span class="mic-pulse-dot" style="display:none;"></span>' +
-        '<input type="text" placeholder="Say or type your note\u2026" autocomplete="off">' +
+        '<button class="annotation-mic-toggle" title="' + (micOn ? 'Disable' : 'Enable') + ' auto-transcribe">' +
+          (micOn ? '🎙️' : '🔇') +
+        '</button>' +
+        '<input type="text" placeholder="' + (micOn ? 'Say or type your note\u2026' : 'Type your note\u2026') + '" autocomplete="off">' +
         '<button class="annotation-popover-submit">Save</button>' +
         '<button class="annotation-popover-cancel">\u00d7</button>' +
       '</div>';
+    // Wire up mic toggle
+    const micBtn = pop.querySelector('.annotation-mic-toggle');
+    micBtn.onclick = function(e) {
+      e.stopPropagation();
+      const nowOn = !isAutoTranscribeEnabled();
+      setAutoTranscribe(nowOn);
+      micBtn.textContent = nowOn ? '🎙️' : '🔇';
+      micBtn.title = (nowOn ? 'Disable' : 'Enable') + ' auto-transcribe';
+      pop.querySelector('input[type="text"]').placeholder = nowOn ? 'Say or type your note\u2026' : 'Type your note\u2026';
+      if (!nowOn && speechRec) {
+        try { speechRec.abort(); } catch(ex){}
+        speechRec = null;
+        const dot = pop.querySelector('.mic-pulse-dot');
+        if (dot) dot.style.display = 'none';
+      } else if (nowOn && !speechRec) {
+        const input = pop.querySelector('input[type="text"]');
+        startSpeechRecognition(input, pop);
+      }
+    };
     return pop;
   }
 
