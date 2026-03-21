@@ -686,14 +686,14 @@ main {
 
 .btn-fab-chat {
   background: var(--bg-paper);
-  color: #6c71c4;
+  color: var(--terracotta);
   border: 1px solid var(--border);
 }
 
-.btn-fab-chat:active {
-  background: #6c71c4;
+.btn-fab-chat.active {
+  background: var(--terracotta);
   color: #fff;
-  border-color: #6c71c4;
+  border-color: var(--terracotta);
 }
 
 .btn-fab-decision {
