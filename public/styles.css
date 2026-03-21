@@ -684,6 +684,18 @@ main {
   opacity: 0.8;
 }
 
+.btn-fab-chat {
+  background: var(--bg-paper);
+  color: #6c71c4;
+  border: 1px solid var(--border);
+}
+
+.btn-fab-chat:active {
+  background: #6c71c4;
+  color: #fff;
+  border-color: #6c71c4;
+}
+
 .btn-fab-decision {
   background: var(--bg-paper);
   color: var(--terracotta);

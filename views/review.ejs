@@ -133,8 +133,13 @@
   </div>
 </div>
 
-<!-- Floating buttons: mic + decision quick-access -->
+<!-- Floating buttons: mic + decision quick-access + chat -->
 <div class="floating-buttons">
+  <% if (typeof chatToken !== 'undefined' && chatToken) { %>
+  <button type="button" class="btn-fab btn-fab-chat btn-chat" title="Chat with Author">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+  </button>
+  <% } %>
   <button type="button" id="decisionFab" class="btn-fab btn-fab-decision" onclick="toggleDecisionPanel()" title="Quick decision">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
   </button>
