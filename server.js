@@ -18,6 +18,7 @@ const { execFile, execFileSync } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const crypto = require('crypto');
+const { createChatModule } = require('./lib/db/chat');
 const OpenAI = require('openai');
 const multer = require('multer');
 const csrf = require('csurf');
@@ -171,6 +172,15 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- Chat module ---
+const chatModule = createChatModule({
+  dataDir: path.join(__dirname, 'data'),
+  openclawToken: process.env.OPENCLAW_TOKEN || '840913d59243741296520ed68d2cea56b49934b9c84ff738',
+  openclawBaseUrl: process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789/v1',
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  chatModel: process.env.CHAT_MODEL || 'anthropic/claude-sonnet-4-6',
+});
 app.use('/tts-cache', express.static(path.join(__dirname, 'tts-cache')));
 app.use('/audio', express.static(path.join(__dirname, 'data', 'audio')));
 app.use('/uploads', express.static(uploadsDir));
@@ -620,6 +630,7 @@ const stmts = {
     ORDER BY created_at DESC
   `),
   decide: db.prepare(`UPDATE items SET status = 'decided', decision = @decision, feedback = @feedback, updated_at = datetime('now') WHERE slug = @slug`),
+  dismiss: db.prepare(`UPDATE items SET status = 'dismissed', decision = 'Dismissed', updated_at = datetime('now') WHERE slug = @slug`),
   enqueueOutbox: db.prepare(`INSERT INTO decision_outbox (slug, payload) VALUES (@slug, @payload)`),
   listPendingOutbox: db.prepare(`SELECT id, payload FROM decision_outbox WHERE sent_at IS NULL ORDER BY created_at ASC, id ASC LIMIT @limit`),
   markOutboxSent: db.prepare(`UPDATE decision_outbox SET attempts = attempts + 1, last_error = NULL, sent_at = datetime('now') WHERE id = @id`),
@@ -853,6 +864,18 @@ app.post('/api/items/:slug/decide', (req, res) => {
   });
 });
 
+// POST /api/items/:slug/dismiss — one-click remove from queue
+app.post('/api/items/:slug/dismiss', (req, res) => {
+  try {
+    const result = stmts.dismiss.run({ slug: req.params.slug });
+    if (result.changes === 0) return res.status(404).json({ error: 'Item not found' });
+    res.json({ ok: true, slug: req.params.slug, status: 'dismissed' });
+  } catch (err) {
+    console.error('Dismiss error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Legacy endpoints (redirect to decide)
 app.post('/api/items/:slug/approve', (req, res) => {
   req.body.decision = 'Approve';
@@ -1046,7 +1069,14 @@ app.get('/review/:slug', (req, res) => {
   if (!item) return res.status(404).send('Not found');
   const actions = getActions(item);
   const returnTab = req.query.fromTab === 'decided' ? 'decided' : 'pending';
-  res.render('review', { item, actions, returnTab });
+
+  // Chat integration
+  let chatToken = '';
+  if (chatModule) {
+    chatToken = chatModule.generateChatToken(req.params.slug);
+  }
+
+  res.render('review', { item, actions, returnTab, chatToken });
 });
 
 // --- Decision outbox drain (C4: durable notifications) ---
@@ -1077,9 +1107,26 @@ setInterval(() => {
 
 reconcileInterruptedAudioJobs();
 
+// --- Global JSON error handler for /api/ routes ---
+app.use((err, req, res, _next) => {
+  console.error(`[${req.method} ${req.url}] Error:`, err.message || err);
+  const status = err.status || 500;
+  if (req.path.startsWith('/api/')) {
+    res.status(status).json({ error: err.message || 'Internal server error' });
+  } else {
+    res.status(status).send(`<pre>${err.message || 'Internal server error'}</pre>`);
+  }
+});
+
 // --- Start ---
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Turf Review running at http://localhost:${PORT}`);
   // Drain any decisions that were queued while OpenClaw was down
   void drainDecisionOutbox();
 });
+
+// Attach WebSocket server for chat
+if (chatModule) {
+  chatModule.attachToServer(server, (slug) => stmts.getBySlug.get(slug));
+  console.log('Chat WebSocket attached');
+}
