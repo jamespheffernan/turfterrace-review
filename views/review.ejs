@@ -36,7 +36,7 @@
   <% } %>
 
   <% if (item.approval_status === 'manual_required') { %>
-    <div class="approval-alert">⚠️ Manual task follow-up required</div>
+    <div class="approval-alert">Manual task follow-up required</div>
   <% } %>
 
   <!-- Audio players -->
@@ -83,7 +83,7 @@
         </button>
       <% }); %>
       <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-        <button type="button" class="btn btn-action btn-chat" title="Chat with Author" style="background: #6c71c4; color: white; margin-top: 8px;">💬 Chat with Author</button>
+        <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
       <% } %>
     </div>
     <div class="action-sidebar-feedback">
@@ -108,7 +108,7 @@
         <div class="sidebar-feedback-text">"<%= item.feedback %>"</div>
       <% } %>
       <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-        <button type="button" class="btn btn-action btn-chat" title="Chat with Author" style="background: #6c71c4; color: white; margin-top: 16px; width: 100%;">💬 Chat with Author</button>
+        <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
       <% } %>
     </div>
   </div>
@@ -168,7 +168,7 @@
     <% if (item.feedback) { %> — "<%= item.feedback %>"<% } %>
   </div>
   <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-    <button type="button" class="btn btn-action btn-chat" title="Chat with Author" style="background: #6c71c4; color: white; margin-top: 12px; width: 100%; min-height: 48px; font-size: 1rem;">💬 Chat with Author</button>
+    <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
   <% } %>
 </div>
 <% } %>
@@ -756,18 +756,24 @@
 <% if (typeof chatToken !== 'undefined' && chatToken) { %>
 <!-- Chat Panel -->
 <div id="chatOverlay" class="chat-overlay"></div>
-<div id="chatPanel" class="chat-panel" data-slug="<%= item.slug %>" data-chat-token="<%= chatToken %>">
+<div id="chatPanel" class="chat-panel" data-slug="<%= item.slug %>" data-chat-token="<%= chatToken %>" data-category="<%= item.category %>">
   <div class="chat-header">
-    <span class="chat-title">💬 <span id="chatAgentLabel">Chat with Author</span></span>
+    <div class="chat-header-left">
+      <span class="chat-header-title" id="chatAgentLabel">Chat with Author</span>
+    </div>
     <div class="chat-header-actions">
-      <button id="chatNewBtn" class="chat-btn-new" title="New Chat">🔄</button>
-      <button id="chatCloseBtn" class="chat-btn-close" title="Close">&times;</button>
+      <button id="chatNewBtn" class="btn-new-chat" title="New Chat">New</button>
+      <button id="chatCloseBtn" class="btn-close-chat" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
   </div>
   <div id="chatMessages" class="chat-messages"></div>
   <div class="chat-input-area">
-    <input type="text" id="chatInput" class="chat-input" placeholder="Ask about this review..." onkeydown="if(event.key==='Enter')document.getElementById('chatSendBtn').click()">
-    <button id="chatSendBtn" class="chat-send-btn">Send</button>
+    <textarea id="chatInput" class="chat-input" placeholder="Ask about this review..." rows="1"></textarea>
+    <button id="chatSendBtn" class="btn-send" title="Send" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

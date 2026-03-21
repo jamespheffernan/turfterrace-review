@@ -168,8 +168,8 @@
   // ── Input handling ──
   function setInputEnabled(enabled) {
     inputEl.disabled = !enabled;
-    sendBtn.disabled = !enabled;
     isStreaming = !enabled;
+    sendBtn.disabled = !enabled || !inputEl.value.trim();
   }
 
   function autoResizeInput() {
@@ -177,7 +177,10 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + "px";
   }
 
-  inputEl.addEventListener("input", autoResizeInput);
+  inputEl.addEventListener("input", function () {
+    autoResizeInput();
+    sendBtn.disabled = !inputEl.value.trim() || isStreaming;
+  });
 
   inputEl.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) {

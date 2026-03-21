@@ -17,6 +17,16 @@
   --amber: #a07020;
   --amber-soft: rgba(160, 112, 32, 0.08);
   --shadow: rgba(42, 37, 32, 0.06);
+
+  /* Chat panel aliases */
+  --surface: var(--bg-paper);
+  --hover: var(--bg-inset);
+  --secondary: var(--text-secondary);
+  --tertiary: var(--text-muted);
+  --rule: var(--border-light);
+  --danger: var(--red);
+  --ease: 0.15s ease;
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -285,6 +295,17 @@ main {
   border-radius: 0 6px 6px 0;
 }
 
+.approval-alert {
+  background: var(--amber-soft);
+  border-left: 3px solid var(--amber);
+  padding: 12px 18px;
+  margin-bottom: 24px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--amber);
+  border-radius: 0 6px 6px 0;
+}
+
 /* === Rendered Content (Markdown) === */
 .rendered-content {
   font-family: 'Lora', serif;
@@ -468,7 +489,7 @@ main {
   width: 220px;
   flex-shrink: 0;
   position: sticky;
-  top: 32px;
+  top: 56px;
 }
 
 .action-sidebar-inner {
@@ -640,12 +661,12 @@ main {
 }
 
 .btn-fab:hover {
-  transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(42, 37, 32, 0.2);
 }
 
 .btn-fab:active {
-  transform: translateY(0);
+  transform: scale(0.94);
+  transition-duration: 0.06s;
 }
 
 .btn-fab-mic {
@@ -745,19 +766,17 @@ main {
   font-weight: 600;
   font-size: 0.82rem;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
   white-space: nowrap;
 }
 
-.btn:hover { transform: translateY(-1px); }
-.btn:active { transform: translateY(0); }
-
-/* Button variants */
+/* Button variants — flat, solid colors with subtle darken on hover */
 .btn-action-0 {
   background: var(--terracotta);
   color: #fff;
 }
-.btn-action-0:hover { background: #a85028; }
+.btn-action-0:hover { background: #a85028; box-shadow: 0 1px 4px rgba(192, 96, 48, 0.2); }
+.btn-action-0:active { background: #904520; }
 
 .btn-action-1 {
   background: var(--bg-paper);
@@ -765,24 +784,28 @@ main {
   border: 1px solid var(--border);
 }
 .btn-action-1:hover { background: var(--bg-inset); }
+.btn-action-1:active { background: var(--border-light); }
 
 .btn-action-2 {
   background: var(--olive);
   color: #fff;
 }
-.btn-action-2:hover { background: #4a6237; }
+.btn-action-2:hover { background: #4a6237; box-shadow: 0 1px 4px rgba(90, 114, 71, 0.2); }
+.btn-action-2:active { background: #3f5530; }
 
 .btn-action-3 {
   background: var(--text-secondary);
   color: #fff;
 }
 .btn-action-3:hover { background: #4a4238; }
+.btn-action-3:active { background: #3d362e; }
 
 .btn-action-4 {
   background: var(--red);
   color: #fff;
 }
-.btn-action-4:hover { background: #9a3020; }
+.btn-action-4:hover { background: #9a3020; box-shadow: 0 1px 4px rgba(184, 58, 42, 0.2); }
+.btn-action-4:active { background: #882818; }
 
 .btn-action-5 {
   background: var(--bg-inset);
@@ -790,6 +813,38 @@ main {
   border: 1px solid var(--border);
 }
 .btn-action-5:hover { background: var(--border-light); }
+.btn-action-5:active { background: var(--border); }
+
+/* === Chat Toggle Button (sidebar/mobile overrides) === */
+.action-sidebar .btn-chat,
+.action-bar .btn-chat,
+.action-bar--decided .btn-chat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--text);
+  color: var(--bg-paper);
+  border: none;
+  border-radius: 8px;
+  font-family: 'Libre Franklin', sans-serif;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  min-height: 44px;
+  margin-top: 12px;
+}
+.action-sidebar .btn-chat:hover,
+.action-bar .btn-chat:hover,
+.action-bar--decided .btn-chat:hover {
+  opacity: 0.85;
+  background: var(--text);
+  border-color: transparent;
+  transform: none;
+}
 
 /* === Rendered Content — Full Page (iframe) === */
 .rendered-content--fullpage iframe {
@@ -963,19 +1018,13 @@ main {
 .item-card:nth-child(10) { animation-delay: 0.30s; }
 .item-card:nth-child(n+11) { animation-delay: 0.33s; }
 
-/* --- Button hover/press --- */
+/* --- Button hover/press — flat, no bounce --- */
 .btn-action {
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-}
-
-.btn-action:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--shadow), 0 2px 4px var(--shadow);
+  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .btn-action:active {
-  transform: translateY(0.5px) scale(0.97);
-  box-shadow: 0 1px 2px var(--shadow);
+  opacity: 0.85;
   transition-duration: 0.06s;
 }
 
@@ -1020,17 +1069,9 @@ main {
   outline: none;
 }
 
-/* --- Tab hover lift --- */
+/* --- Tab hover --- */
 .tab {
-  transition: all 0.2s ease, transform 0.15s ease;
-}
-
-.tab:hover {
-  transform: translateY(-1px);
-}
-
-.tab:active {
-  transform: translateY(0);
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 /* --- Decision confirmation animation --- */
@@ -1083,7 +1124,7 @@ main {
 
 /* --- Sidebar entrance --- */
 .action-sidebar {
-  animation: fadeUp 0.5s cubic-bezier(0.25, 1, 0.5, 1) 0.15s both;
+  animation: fadeUp 0.35s ease-out 0.1s both;
 }
 
 /* --- Feedback input focus glow --- */
