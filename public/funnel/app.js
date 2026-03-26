@@ -883,21 +883,44 @@ function renderCalendarGrid(visibleDays) {
 
   elements.calendarGrid.innerHTML = visibleDays
     .map((day) => {
-      const rows = ["d0", "d3", "d7"]
-        .map((kind) => {
-          const bucket = day.totalsByKind[kind];
-          if (!bucket || bucket.total === 0) return "";
-          const tone = dominantStatus(bucket);
-          return `
-            <div class="kind-strip ${STATUS_TONES[tone]}">
-              <span>${escapeHtml(KIND_LABELS[kind])}</span>
-              <strong>${escapeHtml(bucket.total)}</strong>
-              <em>${escapeHtml(bucketCaption(bucket))}</em>
-            </div>
-          `;
-        })
-        .filter(Boolean)
-        .join("");
+      const activeKinds = ["d0", "d3", "d7"].filter((kind) => {
+        const bucket = day.totalsByKind[kind];
+        return bucket && bucket.total > 0;
+      });
+      const rows = state.calendarMode === "month"
+        ? (() => {
+            if (!activeKinds.length) {
+              return '<div class="kind-strip kind-strip-summary tone-not_drafted"><span>No activity</span><strong>0</strong><em>quiet</em></div>';
+            }
+            const primaryKind = activeKinds.reduce((best, kind) => {
+              if (!best) return kind;
+              return day.totalsByKind[kind].total > day.totalsByKind[best].total ? kind : best;
+            }, null);
+            const primaryBucket = day.totalsByKind[primaryKind];
+            const tone = dominantStatus(primaryBucket);
+            const totalItems = activeKinds.reduce((sum, kind) => sum + (day.totalsByKind[kind]?.total || 0), 0);
+            const label = activeKinds.length === 1 ? KIND_LABELS[primaryKind] : `${activeKinds.length} cadence steps`;
+            return `
+              <div class="kind-strip kind-strip-summary ${STATUS_TONES[tone]}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(totalItems)}</strong>
+                <em>${escapeHtml(bucketCaption(primaryBucket))}</em>
+              </div>
+            `;
+          })()
+        : activeKinds
+            .map((kind) => {
+              const bucket = day.totalsByKind[kind];
+              const tone = dominantStatus(bucket);
+              return `
+                <div class="kind-strip ${STATUS_TONES[tone]}">
+                  <span>${escapeHtml(KIND_LABELS[kind])}</span>
+                  <strong>${escapeHtml(bucket.total)}</strong>
+                  <em>${escapeHtml(bucketCaption(bucket))}</em>
+                </div>
+              `;
+            })
+            .join("");
 
       return `
         <button
@@ -910,7 +933,7 @@ function renderCalendarGrid(visibleDays) {
             <strong>${escapeHtml(day.dayNumber)}</strong>
           </div>
           <div class="day-stack">
-            ${rows || '<div class="kind-strip tone-not_drafted"><span>No activity</span><strong>0</strong><em>quiet</em></div>'}
+            ${rows}
           </div>
         </button>
       `;

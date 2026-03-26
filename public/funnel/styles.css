@@ -888,6 +888,10 @@ body::before {
   box-shadow: inset 0 0 0 1px rgba(138, 91, 51, 0.15);
 }
 
+.calendar-grid[data-mode="month"] .calendar-day {
+  min-height: 118px;
+}
+
 .day-header {
   display: flex;
   justify-content: space-between;
@@ -926,6 +930,10 @@ body::before {
 
 .kind-strip strong {
   font-size: 0.94rem;
+}
+
+.kind-strip-summary {
+  min-height: 56px;
 }
 
 .tone-sent {
