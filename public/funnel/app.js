@@ -161,6 +161,10 @@ function linkAction(label, href) {
   return `<a class="mini-action link-action" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
 }
 
+function stageJumpAction(label, stage) {
+  return `<button class="mini-action" type="button" data-jump-stage="${escapeHtml(stage)}">${escapeHtml(label)}</button>`;
+}
+
 async function copyText(value) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -193,6 +197,23 @@ function bindCopyActions(root) {
           button.innerHTML = originalHtml;
         }, 1200);
       }
+    });
+  });
+}
+
+function bindStageJumpActions(root) {
+  root.querySelectorAll("[data-jump-stage]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const stage = button.getAttribute("data-jump-stage");
+      if (!stage) return;
+      state.selectedStage = stage;
+      state.contactType = "all";
+      state.contactSearch = "";
+      state.detailLimit = 12;
+      renderFunnel();
+      renderStageDetail();
+      const detailHeading = document.getElementById("stage-detail-heading");
+      detailHeading?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
 }
@@ -635,38 +656,63 @@ function renderWorkList() {
       if (leftDays !== rightDays) return leftDays - rightDays;
       return left.name.localeCompare(right.name);
     })
-    .slice(0, 8);
+    .slice(0, 6);
 
   if (!dueContacts.length) {
-    elements.workList.innerHTML = emptyState("No due follow-ups right now.");
+    elements.workList.innerHTML = emptyState("No follow-ups are due right now. The cadence board is clear.");
     return;
   }
 
+  const overdueCount = state.data.contacts.filter((contact) => typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0).length;
+  const dueSoonCount = state.data.contacts.filter((contact) => typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction >= 0 && contact.daysUntilNextAction <= 1).length;
+
   elements.workList.innerHTML = dueContacts
-    .map((contact) => {
+    .map((contact, index) => {
+      const days = contact.daysUntilNextAction;
       const dueLabel =
-        typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0
-          ? `${Math.abs(contact.daysUntilNextAction)}d overdue`
+        typeof days === "number" && days < 0
+          ? `${Math.abs(days)}d overdue`
           : contact.nextCadenceDueDate
             ? `Due ${formatShortDate(contact.nextCadenceDueDate)}`
             : "Due now";
+      const toneClass = typeof days === "number" && days < 0 ? "tone-failed" : typeof days === "number" && days <= 1 ? "tone-approved" : "tone-pending_review";
+      const leadBadge = typeof contact.leadScore === "number" ? `<span class="contact-pill emphasis">Lead ${escapeHtml(contact.leadScore)}</span>` : "";
       return `
-        <article class="stack-card">
+        <article class="stack-card task-card ${index === 0 ? "task-card-priority" : ""}">
           <div class="row-top">
             <div>
               <strong>${escapeHtml(contact.name)}</strong>
               <small>${escapeHtml(contact.nextActionSummary)}</small>
             </div>
-            <span class="status-tag ${typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0 ? "tone-failed" : "tone-approved"}">${escapeHtml(dueLabel)}</span>
+            <span class="status-tag ${toneClass}">${escapeHtml(dueLabel)}</span>
           </div>
-          <p>${escapeHtml([contact.typeLabel, contact.regionLabel, contact.contactName].filter(Boolean).join(" • ") || "No extra detail")}</p>
-          ${renderContactActions(contact)}
+          <div class="contact-meta">
+            ${leadBadge}
+            <span class="contact-pill">${escapeHtml(contact.typeLabel || "Unknown type")}</span>
+            ${contact.regionLabel ? `<span class="contact-pill">${escapeHtml(contact.regionLabel)}</span>` : ""}
+            ${contact.contactName ? `<span class="contact-pill">Contact: ${escapeHtml(contact.contactName)}</span>` : ""}
+          </div>
+          <p>${escapeHtml(contact.lastTouchDate ? `Last touch ${contact.lastTouchDate}` : "No outreach logged yet")}</p>
+          <div class="contact-actions">
+            ${stageJumpAction("Open stage", "follow_up_due")}
+            ${renderContactActions(contact)}
+          </div>
         </article>
       `;
     })
     .join("");
 
+  elements.workList.innerHTML = `
+    <div class="task-summary">
+      <span class="detail-chip">${escapeHtml(overdueCount)} overdue</span>
+      <span class="detail-chip">${escapeHtml(dueSoonCount)} due within 24h</span>
+      <span class="detail-chip">${escapeHtml(state.data.summary.approvedQueued)} ready to send</span>
+    </div>
+    ${elements.workList.innerHTML}
+  `;
+
   bindCopyActions(elements.workList);
+  bindStageJumpActions(elements.workList);
 }
 
 function renderPerformanceMetrics() {
@@ -685,17 +731,27 @@ function renderPerformanceMetrics() {
     },
   ];
 
-  elements.performanceMetrics.innerHTML = cards
-    .map(
-      (card) => `
+  const narrative = metrics.repliedCount
+    ? `${metrics.repliedCount} conversations have moved from outreach into response.`
+    : "No responses yet; the pipeline is still in outbound mode.";
+
+  elements.performanceMetrics.innerHTML = `
+    <div class="performance-banner">
+      <strong>${escapeHtml(narrative)}</strong>
+      <span>${escapeHtml(`${formatPercent(metrics.responseRate)} response rate and ${formatPercent(metrics.conversionRate)} conversion rate so far.`)}</span>
+    </div>
+    ${cards
+      .map(
+        (card) => `
         <article class="mini-stat">
           <strong>${escapeHtml(card.value)}</strong>
           <span>${escapeHtml(card.label)}</span>
           <small>${escapeHtml(card.note)}</small>
         </article>
       `,
-    )
-    .join("");
+      )
+    .join("")}
+  `;
 }
 
 function renderRunwayCard() {
@@ -764,7 +820,7 @@ function renderRecentResponses() {
   if (!state.data) return;
   const items = state.data.metrics.recentResponses;
   if (!items.length) {
-    elements.recentResponses.innerHTML = emptyState("No responses logged yet.");
+    elements.recentResponses.innerHTML = emptyState("No responses logged yet. This lane will light up when outreach starts to land.");
     return;
   }
 
@@ -781,6 +837,7 @@ function renderRecentResponses() {
         </div>
         <p>${escapeHtml(truncateText(item.summary || "No summary captured.", 180))}</p>
         <div class="contact-actions">
+          ${stageJumpAction("Open replied", "replied")}
           ${copyAction("Copy ID", item.id)}
           ${copyAction("Copy crm get", crmGetCommand(item.id))}
         </div>
@@ -789,17 +846,19 @@ function renderRecentResponses() {
     .join("");
 
   bindCopyActions(elements.recentResponses);
+  bindStageJumpActions(elements.recentResponses);
 }
 
 function renderNeedsJimmy() {
   if (!state.data) return;
   const items = state.data.metrics.needsJimmy;
   if (!items.length) {
-    elements.needsJimmy.innerHTML = emptyState("No contacts are flagged for Jimmy right now.");
+    elements.needsJimmy.innerHTML = emptyState("Nothing is escalated right now. Manual attention is clear.");
     return;
   }
 
   elements.needsJimmy.innerHTML = items
+    .slice(0, 5)
     .map((item) => `
       <article class="stack-card">
         <div class="row-top">
@@ -811,6 +870,7 @@ function renderNeedsJimmy() {
         </div>
         <p>${escapeHtml(item.status || "Status not set")}</p>
         <div class="contact-actions">
+          ${stageJumpAction("Open contacted", "contacted")}
           ${copyAction("Copy ID", item.id)}
           ${copyAction("Copy crm get", crmGetCommand(item.id))}
         </div>
@@ -819,6 +879,7 @@ function renderNeedsJimmy() {
     .join("");
 
   bindCopyActions(elements.needsJimmy);
+  bindStageJumpActions(elements.needsJimmy);
 }
 
 function renderCalendarControls() {

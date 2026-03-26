@@ -95,21 +95,43 @@
         </aside>
       </section>
 
-      <section class="insight-grid">
-        <article class="panel panel-span-2" aria-labelledby="worklist-heading">
+      <section class="operator-grid">
+        <article class="panel operator-panel operator-panel-primary" aria-labelledby="worklist-heading">
           <div class="section-top">
             <div>
-              <p class="section-kicker">Due and overdue</p>
-              <h2 id="worklist-heading">Who needs a touch next.</h2>
+              <p class="section-kicker">Act now</p>
+              <h2 id="worklist-heading">Today’s follow-up queue.</h2>
             </div>
           </div>
           <div class="stack-list" id="workList"></div>
         </article>
 
-        <article class="panel" aria-labelledby="performance-heading">
+        <article class="panel operator-panel" aria-labelledby="responses-heading">
           <div class="section-top">
             <div>
-              <p class="section-kicker">Response and conversion</p>
+              <p class="section-kicker">Watch replies</p>
+              <h2 id="responses-heading">Latest response signals.</h2>
+            </div>
+          </div>
+          <div class="stack-list" id="recentResponses"></div>
+        </article>
+
+        <article class="panel operator-panel" aria-labelledby="jimmy-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Escalations</p>
+              <h2 id="jimmy-heading">What needs manual intervention.</h2>
+            </div>
+          </div>
+          <div class="stack-list" id="needsJimmy"></div>
+        </article>
+      </section>
+
+      <section class="system-grid">
+        <article class="panel panel-span-2" aria-labelledby="performance-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Performance</p>
               <h2 id="performance-heading">Pipeline yield and velocity.</h2>
             </div>
           </div>
@@ -119,32 +141,12 @@
         <article class="panel" aria-labelledby="runway-heading">
           <div class="section-top">
             <div>
-              <p class="section-kicker">Pipeline runway</p>
-              <h2 id="runway-heading">How long the pipeline can sustain cadence.</h2>
+              <p class="section-kicker">Runway and tools</p>
+              <h2 id="runway-heading">How long cadence can sustain and what to run next.</h2>
             </div>
           </div>
           <div id="runwayCard"></div>
           <div class="shortcut-grid" id="operatorShortcuts"></div>
-        </article>
-
-        <article class="panel panel-span-2" aria-labelledby="responses-heading">
-          <div class="section-top">
-            <div>
-              <p class="section-kicker">Recent replies</p>
-              <h2 id="responses-heading">Latest response signals.</h2>
-            </div>
-          </div>
-          <div class="stack-list" id="recentResponses"></div>
-        </article>
-
-        <article class="panel" aria-labelledby="jimmy-heading">
-          <div class="section-top">
-            <div>
-              <p class="section-kicker">Needs Jimmy</p>
-              <h2 id="jimmy-heading">Contacts flagged for manual attention.</h2>
-            </div>
-          </div>
-          <div class="stack-list" id="needsJimmy"></div>
         </article>
       </section>
 
@@ -175,8 +177,8 @@
       <section class="panel source-panel" aria-labelledby="source-heading">
         <div class="section-top">
           <div>
-            <p class="section-kicker">Source health</p>
-            <h2 id="source-heading">What fed this snapshot and where the gaps are.</h2>
+            <p class="section-kicker">System health</p>
+            <h2 id="source-heading">What fed this snapshot and what looks unreliable.</h2>
           </div>
         </div>
 
