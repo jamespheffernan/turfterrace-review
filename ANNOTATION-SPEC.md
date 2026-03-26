@@ -1,7 +1,7 @@
-# Inline Annotation Feature — Spec
+# Inline Annotation Feature — Current Spec
 
 ## Summary
-Add inline text/image annotation to Turf Review detail pages. One user (Jimmy), zero friction. Select text → speak or type → done.
+Turf Review supports inline text/image annotation on review detail pages. One user (Jimmy), zero friction. Select text or tap an image marker, then speak or type the note.
 
 ## Interaction Flow
 
@@ -21,6 +21,7 @@ Add inline text/image annotation to Turf Review detail pages. One user (Jimmy), 
    - POST to `/api/items/:slug/annotate` with `{ quote, comment, charOffset }`
    - Highlight the quoted text permanently (until annotation is deleted)
    - Show the annotation as a subtle inline marker (clickable to reveal comment)
+   - Mirror the annotation into the item's OpenClaw session as a hidden internal note so review context accumulates in the same session transcript
 
 ### Image Annotation
 1. On hover over any `<img>` in review content, show a small annotation button (pin icon or comment icon) in the top-right corner
@@ -28,6 +29,7 @@ Add inline text/image annotation to Turf Review detail pages. One user (Jimmy), 
 3. Same voice + text input race as above
 4. On submit: POST with `{ anchor: "image:N", comment }`
 5. Show a badge on the image indicating it has an annotation
+6. Mirror the annotation into the item's OpenClaw session as a hidden internal note
 
 ### Voice Capture Details
 - Use `webkitSpeechRecognition` / `SpeechRecognition` (built into Chrome/Safari)
@@ -95,12 +97,13 @@ Deletes a single annotation
 - Fetch annotations via GET endpoint on page load
 - For text annotations: use `anchor_ref` (char offset) to find and wrap the quoted text in a `<mark>` element
 - For image annotations: add badge to the Nth image
+- Annotation deletes use `DELETE /api/items/:slug/annotations/:id`
 
 ## Edge Cases
 - Selection spans multiple paragraphs → still works, quote captures full selection text
 - Selection is empty (click without drag) → ignore, don't show popover
 - Same text appears multiple times → `anchor_ref` char offset disambiguates
-- Annotation text on decided/approved reviews → still allowed (post-decision notes)
+- Annotation text on decided/archived/parked reviews → still allowed (post-decision notes)
 
 ## What NOT to build
 - No threading/replies on annotations

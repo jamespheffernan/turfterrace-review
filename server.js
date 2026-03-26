@@ -19,6 +19,22 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const crypto = require('crypto');
 const { createChatModule } = require('./lib/db/chat');
+const { createFunnelDashboardService } = require('./lib/funnel/dashboard');
+const { createOpenClawClient } = require('./lib/openclaw');
+const {
+  ALLOWED_CATEGORIES,
+  DECISION_SCHEMA_VERSION,
+  arraysMatchExactly,
+  buildInternalMessage,
+  getAllowedActionsForItem,
+  getCanonicalActions,
+  getInitialActionStatus,
+  getSessionKey,
+  getStoredStatusForDecision,
+  isAllowedDecision,
+  normalizeCategory,
+  usesCanonicalRouting,
+} = require('./lib/review-routing');
 const OpenAI = require('openai');
 const multer = require('multer');
 const csrf = require('csurf');
@@ -34,11 +50,14 @@ const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const ttsCacheDir = path.join(__dirname, 'tts-cache');
 if (!fs.existsSync(ttsCacheDir)) fs.mkdirSync(ttsCacheDir);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const PROCESS_APPROVAL_SCRIPT = path.join(__dirname, 'process-approval.sh');
 const MIN_TTS_CHARS = 500;
 
 const app = express();
 const PORT = process.env.PORT || 3457;
+const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN || '840913d59243741296520ed68d2cea56b49934b9c84ff738';
+const OPENCLAW_BASE_URL = process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789/v1';
+const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || 'main';
+const CHAT_MODEL = process.env.CHAT_MODEL || `openclaw/${OPENCLAW_AGENT_ID}`;
 
 // --- SSE live-refresh ---
 const sseClients = new Set();
@@ -78,6 +97,13 @@ db.exec(`
     mindwtr_task_id TEXT,
     mindwtr_project_id TEXT,
     on_approve TEXT,
+    session_key TEXT,
+    workspace_dir TEXT,
+    source_path TEXT,
+    decision_schema_version INTEGER DEFAULT 1,
+    action_status TEXT DEFAULT NULL,
+    action_message TEXT,
+    action_updated_at TEXT,
     tts_status TEXT DEFAULT NULL,
     context_status TEXT DEFAULT NULL,
     context_summary TEXT,
@@ -97,7 +123,15 @@ try { db.exec('ALTER TABLE items ADD COLUMN content_hash TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN mindwtr_task_id TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN mindwtr_project_id TEXT'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN on_approve TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN session_key TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN workspace_dir TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN source_path TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN decision_schema_version INTEGER DEFAULT 1'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN action_status TEXT DEFAULT NULL'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN action_message TEXT'); } catch(e) {}
+try { db.exec('ALTER TABLE items ADD COLUMN action_updated_at TEXT'); } catch(e) {}
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_content_hash ON items(content_hash)'); } catch(e) {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_session_key ON items(session_key)'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN tts_status TEXT DEFAULT NULL'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN context_status TEXT DEFAULT NULL'); } catch(e) {}
 try { db.exec('ALTER TABLE items ADD COLUMN context_summary TEXT'); } catch(e) {}
@@ -155,6 +189,7 @@ const marked = new Marked(
   markedHighlight({
     langPrefix: 'hljs language-',
     highlight(code, lang) {
+      if (lang === 'mermaid') return code;
       if (lang && hljs.getLanguage(lang)) {
         return hljs.highlight(code, { language: lang }).value;
       }
@@ -162,7 +197,15 @@ const marked = new Marked(
     }
   })
 );
-marked.setOptions({ gfm: true, breaks: true });
+const _renderer = new marked.Renderer();
+_renderer.code = function({ text, lang }) {
+  if (lang === 'mermaid') {
+    return `<div class="mermaid">${text}</div>`;
+  }
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<pre><code class="hljs language-${lang || ''}">${escaped}</code></pre>`;
+};
+marked.setOptions({ gfm: true, breaks: true, renderer: _renderer });
 
 // --- Middleware ---
 const session = require('express-session');
@@ -171,15 +214,28 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+const publicStatic = express.static(path.join(__dirname, 'public'), { index: false, redirect: false });
+app.use((req, res, next) => {
+  if (req.path === '/funnel' || req.path === '/funnel/' || req.path === '/funnel/index.html') {
+    return next();
+  }
+  return publicStatic(req, res, next);
+});
 
 // --- Chat module ---
 const chatModule = createChatModule({
   dataDir: path.join(__dirname, 'data'),
-  openclawToken: process.env.OPENCLAW_TOKEN || '840913d59243741296520ed68d2cea56b49934b9c84ff738',
-  openclawBaseUrl: process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789/v1',
+  openclawToken: OPENCLAW_TOKEN,
+  openclawBaseUrl: OPENCLAW_BASE_URL,
+  openclawAgentId: OPENCLAW_AGENT_ID,
   openaiApiKey: process.env.OPENAI_API_KEY || '',
-  chatModel: process.env.CHAT_MODEL || 'anthropic/claude-sonnet-4-6',
+  chatModel: CHAT_MODEL,
+});
+const openclawClient = createOpenClawClient({
+  token: OPENCLAW_TOKEN,
+  baseUrl: OPENCLAW_BASE_URL,
+  agentId: OPENCLAW_AGENT_ID,
+  model: CHAT_MODEL,
 });
 app.use('/tts-cache', express.static(path.join(__dirname, 'tts-cache')));
 app.use('/audio', express.static(path.join(__dirname, 'data', 'audio')));
@@ -216,6 +272,16 @@ function auth(req, res, next) {
 }
 
 app.use(auth);
+
+function getReviewBaseUrl(req) {
+  if (process.env.TURF_REVIEW_BASE_URL) {
+    return process.env.TURF_REVIEW_BASE_URL.replace(/\/+$/, '');
+  }
+
+  const forwardedProto = req.get('x-forwarded-proto');
+  const protocol = forwardedProto ? forwardedProto.split(',')[0].trim() : req.protocol;
+  return `${protocol}://${req.get('host')}`;
+}
 
 // CSRF protection for form submissions (excludes API routes used by scripts/curl with Basic Auth)
 const csrfProtection = csrf({ cookie: false }); // use session-based CSRF tokens
@@ -280,13 +346,15 @@ function normalizeEventText(text) {
 
 function notifyBenji(payload) {
   return new Promise((resolve, reject) => {
-    const { decision, title, slug, feedback, taskId, projectId } = payload;
+    const { decision, title, slug, feedback, taskId, projectId, sessionKey, actionStatus } = payload;
     const parts = [
       'REVIEW DECIDED',
       `decision="${normalizeEventText(decision)}"`,
       `title="${normalizeEventText(title)}"`,
       `slug="${normalizeEventText(slug)}"`,
     ];
+    if (sessionKey) parts.push(`sessionKey="${normalizeEventText(sessionKey)}"`);
+    if (actionStatus) parts.push(`actionStatus="${normalizeEventText(actionStatus)}"`);
     if (feedback && normalizeEventText(feedback)) {
       parts.push(`feedback="${normalizeEventText(feedback)}"`);
     }
@@ -301,6 +369,95 @@ function notifyBenji(payload) {
       resolve();
     });
   });
+}
+
+function sanitizeRenderedHtml(rawHtml) {
+  return xss(rawHtml, {
+    whiteList: {
+      a: ['href', 'title', 'target'],
+      b: [], strong: [], i: [], em: [], s: [], del: [],
+      p: [], br: [], hr: [],
+      h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
+      ul: [], ol: [], li: [],
+      blockquote: [],
+      pre: ['class'], code: ['class'],
+      table: [], thead: [], tbody: [], tr: [], th: ['scope'], td: [],
+      img: ['src', 'alt', 'title'],
+      span: ['class'], div: ['class'],
+    },
+    stripIgnoreTag: true,
+  });
+}
+
+function renderSourceDocument({ markdown, html }) {
+  const sourceMarkdown = markdown || '';
+  const rawHtml = html || marked.parse(sourceMarkdown);
+  return {
+    markdown: sourceMarkdown,
+    rendered_html: sanitizeRenderedHtml(rawHtml),
+  };
+}
+
+function assertAbsolutePath(value, label) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} is required`);
+  }
+  if (!path.isAbsolute(value)) {
+    throw new Error(`${label} must be an absolute path`);
+  }
+  return path.resolve(value);
+}
+
+function assertPathInside(parentDir, childPath, childLabel) {
+  const relative = path.relative(parentDir, childPath);
+  if (!relative || relative === '') return;
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`${childLabel} must be inside workspaceDir`);
+  }
+}
+
+function resolveGitTrackedSource(workspaceDir, sourcePath) {
+  const resolvedWorkspaceDir = assertAbsolutePath(workspaceDir, 'workspaceDir');
+  const resolvedSourcePath = assertAbsolutePath(sourcePath, 'sourcePath');
+  assertPathInside(resolvedWorkspaceDir, resolvedSourcePath, 'sourcePath');
+
+  let gitRoot;
+  try {
+    gitRoot = execFileSync('git', ['-C', resolvedWorkspaceDir, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (_error) {
+    throw new Error('workspaceDir must be inside a git repository');
+  }
+
+  const relativeToGitRoot = path.relative(gitRoot, resolvedSourcePath);
+  if (relativeToGitRoot.startsWith('..') || path.isAbsolute(relativeToGitRoot)) {
+    throw new Error('sourcePath must be inside the git repository for workspaceDir');
+  }
+
+  try {
+    execFileSync('git', ['-C', gitRoot, 'ls-files', '--error-unmatch', relativeToGitRoot], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+  } catch (_error) {
+    throw new Error('sourcePath must point to a git-tracked file');
+  }
+
+  return {
+    gitRoot,
+    workspaceDir: resolvedWorkspaceDir,
+    sourcePath: resolvedSourcePath,
+    relativeToGitRoot,
+  };
+}
+
+function readSourceDocument(sourcePath) {
+  return fs.readFileSync(sourcePath, 'utf8');
+}
+
+function buildGitReviewUrl(slug) {
+  return `/review/${slug}`;
 }
 
 // --- Read Aloud TTS (Edge TTS) ---
@@ -464,10 +621,13 @@ function resolveAudioStatus(item, kind) {
   return item;
 }
 
-function updateApprovalState(slug, status, message = null, exitCode = null) {
+function updateActionState(slug, status, message = null, exitCode = null) {
   db.prepare(`
     UPDATE items
-    SET approval_status = @status,
+    SET action_status = @status,
+        action_message = @message,
+        action_updated_at = datetime('now'),
+        approval_status = @status,
         approval_message = @message,
         approval_exit_code = @exit_code,
         approval_updated_at = datetime('now')
@@ -579,24 +739,209 @@ function generateContextMemo(slug) {
 }
 
 function getActions(item) {
-  if (item.actions) {
-    try { return JSON.parse(item.actions); } catch(e) {}
+  const actions = getAllowedActionsForItem(item);
+  if (actions.length) return actions;
+
+  const canonical = getCanonicalActions(item?.category);
+  return canonical ? [...canonical] : [];
+}
+
+function buildReviewUrl(baseUrl, slug) {
+  return new URL(`/review/${slug}`, baseUrl).toString();
+}
+
+async function appendSessionNote(item, kind, payload) {
+  if (!openclawClient || !item) return null;
+  const sessionKey = item.session_key || getSessionKey(item.slug);
+  const notePayload = (payload && typeof payload === 'object' && !Array.isArray(payload))
+    ? {
+        responseInstruction: 'Reply only with an internal Turf Review message. Do not produce any user-facing text.',
+        ...payload,
+      }
+    : payload;
+  const content = buildInternalMessage(kind, notePayload);
+  return openclawClient.appendInternalMessage({ sessionKey, content });
+}
+
+async function seedSessionForItem(item, reviewUrl, reason = 'bootstrap') {
+  const sourceMapping = {
+    workspaceDir: item.workspace_dir,
+    sourcePath: item.source_path,
+  };
+
+  return appendSessionNote(item, reason, {
+    instruction: 'Read the full document now and build a working understanding before Jimmy opens chat. Produce only an internal Turf Review note with your private digest of the document, key intent, risks, and any ambiguities. Do not send any user-facing text until Jimmy chats with this review or triggers a decision.',
+    bootstrapChecklist: [
+      'Read the full document body in this bootstrap payload.',
+      'Summarize the document intent and the main points privately.',
+      'Note likely review risks, execution concerns, or ambiguities privately.',
+      'Keep the result internal-only; do not speak to Jimmy yet.',
+    ],
+    title: item.title,
+    slug: item.slug,
+    category: item.category,
+    reviewUrl,
+    source: sourceMapping,
+    document: item.markdown || item.rendered_html,
+  });
+}
+
+async function mirrorAnnotationToSession(item, annotation, reviewUrl) {
+  return appendSessionNote(item, 'annotation', {
+    reviewUrl,
+    annotation: {
+      id: annotation.id,
+      createdAt: annotation.created_at,
+      anchorType: annotation.anchor_type,
+      anchorRef: annotation.anchor_ref,
+      quote: annotation.quote,
+      comment: annotation.comment,
+    },
+  });
+}
+
+function parseInternalResultText(text) {
+  const normalized = String(text || '').trim();
+  const match = normalized.match(/^\[TURF_REVIEW_INTERNAL\][^\n]*\n?([\s\S]*)$/);
+  const payload = match ? match[1].trim() : normalized;
+  if (!payload) return null;
+  try {
+    return JSON.parse(payload);
+  } catch (_error) {
+    return null;
   }
-  // Legacy items without actions get a fallback — but new publishes are blocked without them
-  return ['Approve', 'Reject'];
+}
+
+async function runStructuredSessionAction(item, kind, payload) {
+  const instructionsByKind = {
+    execute: 'If you can complete the work from the linked workspace and source context, do so. If not, return blocked with a concise reason that Jimmy needs to resolve.',
+    edit: 'Revise the linked source file using the review feedback and annotations. Return the full replacement file contents in updatedSource.',
+    rework: 'Revise the linked source file using the review feedback and annotations. Return the full replacement file contents in updatedSource.',
+  };
+
+  const completion = await appendSessionNote(item, kind, {
+    instructions: instructionsByKind[kind] || 'Handle the requested action using the linked review context.',
+    contract: payload,
+    responseFormat: {
+      instruction: 'Reply with an internal message only. The response body after the first newline must be valid JSON.',
+      schema: {
+        status: 'succeeded | blocked | failed',
+        summary: 'short human-readable summary',
+        updatedSource: 'optional full replacement file contents',
+        commitMessage: 'optional git commit message',
+      },
+    },
+  });
+
+  const parsed = parseInternalResultText(completion?.text || '');
+  if (parsed) return parsed;
+
+  return {
+    status: 'blocked',
+    summary: 'OpenClaw did not return a structured internal result',
+  };
+}
+
+function gitCommitIfNeeded(workspaceDir, sourcePath, commitMessage) {
+  const relativePath = path.relative(workspaceDir, sourcePath);
+  execFileSync('git', ['-C', workspaceDir, 'add', relativePath], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+
+  let hasChanges = true;
+  try {
+    execFileSync('git', ['-C', workspaceDir, 'diff', '--cached', '--quiet', '--', relativePath], {
+      stdio: 'ignore',
+    });
+    hasChanges = false;
+  } catch (error) {
+    if (typeof error.status === 'number' && error.status === 1) {
+      hasChanges = true;
+    } else {
+      throw error;
+    }
+  }
+
+  if (!hasChanges) return false;
+
+  execFileSync('git', ['-C', workspaceDir, 'commit', '-m', commitMessage || `Update ${path.basename(sourcePath)} from Turf Review`], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  return true;
+}
+
+function republishItemFromSource(item) {
+  const sourceText = readSourceDocument(item.source_path);
+  const ext = path.extname(item.source_path).toLowerCase();
+  const rendered = renderSourceDocument({
+    markdown: ext === '.html' || ext === '.htm' ? '' : sourceText,
+    html: ext === '.html' || ext === '.htm' ? sourceText : null,
+  });
+  const contentHash = createContentHash(item.title, rendered.markdown || sourceText);
+
+  db.prepare(`
+    UPDATE items
+    SET markdown = @markdown,
+        rendered_html = @rendered_html,
+        content_hash = @content_hash,
+        status = 'pending',
+        decision = NULL,
+        feedback = NULL,
+        actions = @actions,
+        action_status = NULL,
+        action_message = NULL,
+        action_updated_at = NULL,
+        approval_status = NULL,
+        approval_message = NULL,
+        approval_exit_code = NULL,
+        approval_updated_at = NULL,
+        decision_schema_version = @decision_schema_version,
+        updated_at = datetime('now')
+    WHERE slug = @slug
+  `).run({
+    slug: item.slug,
+    markdown: rendered.markdown,
+    rendered_html: rendered.rendered_html,
+    content_hash: contentHash,
+    actions: JSON.stringify(getCanonicalActions(item.category)),
+    decision_schema_version: DECISION_SCHEMA_VERSION,
+  });
+
+  const refreshed = stmts.getBySlug.get(item.slug);
+  const plainText = stripMarkdownToPlain(refreshed.markdown || refreshed.rendered_html);
+  if (plainText.length >= MIN_TTS_CHARS) {
+    db.prepare(`UPDATE items SET tts_status = 'generating' WHERE slug = ?`).run(item.slug);
+    generateReadAloudTTS(item.slug);
+  } else {
+    db.prepare(`UPDATE items SET tts_status = 'skipped' WHERE slug = ?`).run(item.slug);
+  }
+
+  db.prepare(`UPDATE items SET context_status = 'generating' WHERE slug = ?`).run(item.slug);
+  generateContextMemo(item.slug);
+
+  return refreshed;
 }
 
 // --- Prepared statements ---
 const stmts = {
   insert: db.prepare(`
-    INSERT INTO items (slug, title, markdown, rendered_html, category, actions, content_hash, mindwtr_task_id, mindwtr_project_id, on_approve)
-    VALUES (@slug, @title, @markdown, @rendered_html, @category, @actions, @content_hash, @mindwtr_task_id, @mindwtr_project_id, @on_approve)
+    INSERT INTO items (
+      slug, title, markdown, rendered_html, category, actions, content_hash,
+      mindwtr_task_id, mindwtr_project_id, on_approve, session_key, workspace_dir,
+      source_path, decision_schema_version
+    )
+    VALUES (
+      @slug, @title, @markdown, @rendered_html, @category, @actions, @content_hash,
+      @mindwtr_task_id, @mindwtr_project_id, @on_approve, @session_key, @workspace_dir,
+      @source_path, @decision_schema_version
+    )
   `),
   getByContentHash: db.prepare('SELECT slug FROM items WHERE content_hash = ? ORDER BY created_at ASC LIMIT 1'),
   getBySlug: db.prepare('SELECT * FROM items WHERE slug = ?'),
   listAll: db.prepare(`
     SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           approval_status, approval_message, approval_exit_code,
+           session_key, workspace_dir, source_path, decision_schema_version,
+           action_status, action_message, approval_status, approval_message, approval_exit_code,
            LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
            created_at, updated_at
     FROM items
@@ -604,7 +949,8 @@ const stmts = {
   `),
   listByStatus: db.prepare(`
     SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           approval_status, approval_message, approval_exit_code,
+           session_key, workspace_dir, source_path, decision_schema_version,
+           action_status, action_message, approval_status, approval_message, approval_exit_code,
            LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
            created_at, updated_at
     FROM items
@@ -613,7 +959,8 @@ const stmts = {
   `),
   listByCategory: db.prepare(`
     SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           approval_status, approval_message, approval_exit_code,
+           session_key, workspace_dir, source_path, decision_schema_version,
+           action_status, action_message, approval_status, approval_message, approval_exit_code,
            LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
            created_at, updated_at
     FROM items
@@ -622,14 +969,29 @@ const stmts = {
   `),
   listByStatusAndCategory: db.prepare(`
     SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           approval_status, approval_message, approval_exit_code,
+           session_key, workspace_dir, source_path, decision_schema_version,
+           action_status, action_message, approval_status, approval_message, approval_exit_code,
            LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
            created_at, updated_at
     FROM items
     WHERE status = ? AND category = ?
     ORDER BY created_at DESC
   `),
-  decide: db.prepare(`UPDATE items SET status = 'decided', decision = @decision, feedback = @feedback, updated_at = datetime('now') WHERE slug = @slug`),
+  decide: db.prepare(`
+    UPDATE items
+    SET status = @status,
+        decision = @decision,
+        feedback = @feedback,
+        action_status = @action_status,
+        action_message = @action_message,
+        action_updated_at = datetime('now'),
+        approval_status = @action_status,
+        approval_message = @action_message,
+        approval_exit_code = NULL,
+        approval_updated_at = datetime('now'),
+        updated_at = datetime('now')
+    WHERE slug = @slug
+  `),
   dismiss: db.prepare(`UPDATE items SET status = 'dismissed', decision = 'Dismissed', updated_at = datetime('now') WHERE slug = @slug`),
   enqueueOutbox: db.prepare(`INSERT INTO decision_outbox (slug, payload) VALUES (@slug, @payload)`),
   listPendingOutbox: db.prepare(`SELECT id, payload FROM decision_outbox WHERE sent_at IS NULL ORDER BY created_at ASC, id ASC LIMIT @limit`),
@@ -637,8 +999,7 @@ const stmts = {
   markOutboxFailed: db.prepare(`UPDATE decision_outbox SET attempts = attempts + 1, last_error = @last_error WHERE id = @id`),
 };
 
-const ALLOWED_CATEGORIES = new Set(['kitchenlux', 'outreach', 'admin', 'general']);
-const REQUIRE_TASK_LINK = process.env.REVIEW_REQUIRE_TASK_LINK !== '0';
+const funnelDashboard = createFunnelDashboardService({ reviewDb: db });
 
 // --- SSE endpoint (auth-protected) ---
 app.get('/api/events', auth, (req, res) => {
@@ -652,81 +1013,252 @@ app.get('/api/events', auth, (req, res) => {
   req.on('close', () => sseClients.delete(res));
 });
 
+app.get('/api/funnel/health', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'turfterrace-funnel',
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/funnel/dashboard', async (req, res) => {
+  const reviewBaseUrl = getReviewBaseUrl(req);
+  const fresh = req.query.fresh === '1';
+
+  try {
+    const payload = await funnelDashboard.getDashboardData({
+      force: fresh,
+      reviewBaseUrl,
+    });
+    res.json(payload);
+  } catch (error) {
+    const cachedPayload = funnelDashboard.getCachedPayload(reviewBaseUrl);
+    const detail = error instanceof Error ? error.message : 'Unknown error';
+
+    if (cachedPayload) {
+      return res.json({
+        ...cachedPayload,
+        warnings: [...cachedPayload.warnings, `Live refresh failed. Showing cached data instead: ${detail}`],
+      });
+    }
+
+    res.status(503).json({
+      error: 'Dashboard data unavailable',
+      detail,
+    });
+  }
+});
+
+function listAnnotationsForSlug(slug) {
+  return db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(slug);
+}
+
+async function createOmniFocusInboxItem(item, reviewUrl, feedback, annotations) {
+  const noteParts = [
+    `Review: ${reviewUrl}`,
+    `Source: ${item.source_path}`,
+  ];
+
+  if (feedback) {
+    noteParts.push(`Feedback:\n${feedback}`);
+  }
+
+  if (annotations.length > 0) {
+    noteParts.push(`Annotations:\n${annotations.map((annotation) => {
+      if (annotation.anchor_type === 'image') {
+        return `- [image ${annotation.anchor_ref || ''}] ${annotation.comment}`;
+      }
+      return `- "${annotation.quote || ''}" -> ${annotation.comment}`;
+    }).join('\n')}`);
+  }
+
+  await execFileAsync('/Users/username/.bun/bin/of', [
+    'task',
+    'create',
+    item.title,
+    '--note',
+    noteParts.join('\n\n'),
+  ], {
+    env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
+    timeout: 30000,
+  });
+}
+
+async function routeDecisionAction(item, { decision, feedback, annotations, reviewUrl }) {
+  const freshItem = stmts.getBySlug.get(item.slug) || item;
+
+  await appendSessionNote(freshItem, 'decision', {
+    decision,
+    feedback,
+    reviewUrl,
+    source: {
+      workspaceDir: freshItem.workspace_dir,
+      sourcePath: freshItem.source_path,
+    },
+    annotations,
+  });
+
+  switch (decision) {
+    case 'Kill':
+      updateActionState(item.slug, 'succeeded', 'Killed and archived.');
+      return;
+    case 'Noted':
+      updateActionState(item.slug, 'succeeded', 'Noted and archived.');
+      return;
+    case 'Park':
+      updateActionState(item.slug, 'succeeded', 'Parked.');
+      return;
+    case 'Send':
+      updateActionState(item.slug, 'succeeded', 'Queued for downstream outreach send handling.');
+      return;
+    case 'Inbox':
+      updateActionState(item.slug, 'running', 'Creating OmniFocus inbox item...');
+      await createOmniFocusInboxItem(freshItem, reviewUrl, feedback, annotations);
+      updateActionState(item.slug, 'succeeded', 'OmniFocus inbox item created.');
+      return;
+    case 'Execute': {
+      updateActionState(item.slug, 'running', 'Executing from the linked workspace...');
+      const result = await runStructuredSessionAction(freshItem, 'execute', {
+        title: freshItem.title,
+        category: freshItem.category,
+        reviewUrl,
+        workspaceDir: freshItem.workspace_dir,
+        sourcePath: freshItem.source_path,
+        feedback,
+        annotations,
+        document: freshItem.markdown || freshItem.rendered_html,
+      });
+      updateActionState(item.slug, result.status || 'blocked', result.summary || 'Execution did not report a result.');
+      if ((result.status || 'blocked') !== 'succeeded') {
+        await notifyBenji({
+          decision,
+          title: freshItem.title,
+          slug: freshItem.slug,
+          feedback,
+          sessionKey: freshItem.session_key || getSessionKey(freshItem.slug),
+          actionStatus: result.status || 'blocked',
+        });
+      }
+      return;
+    }
+    case 'Edit':
+    case 'Rework': {
+      updateActionState(item.slug, 'running', `${decision} is applying changes to the source file...`);
+      const sourceBefore = readSourceDocument(freshItem.source_path);
+      const result = await runStructuredSessionAction(freshItem, decision.toLowerCase(), {
+        title: freshItem.title,
+        category: freshItem.category,
+        reviewUrl,
+        workspaceDir: freshItem.workspace_dir,
+        sourcePath: freshItem.source_path,
+        feedback,
+        annotations,
+        document: sourceBefore,
+      });
+
+      if ((result.status || 'blocked') !== 'succeeded' || typeof result.updatedSource !== 'string') {
+        updateActionState(item.slug, result.status || 'blocked', result.summary || `${decision} did not produce updated source content.`);
+        if ((result.status || 'blocked') !== 'succeeded') {
+          await notifyBenji({
+            decision,
+            title: freshItem.title,
+            slug: freshItem.slug,
+            feedback,
+            sessionKey: freshItem.session_key || getSessionKey(freshItem.slug),
+            actionStatus: result.status || 'blocked',
+          });
+        }
+        return;
+      }
+
+      fs.writeFileSync(freshItem.source_path, result.updatedSource, 'utf8');
+      gitCommitIfNeeded(
+        freshItem.workspace_dir,
+        freshItem.source_path,
+        result.commitMessage || `Turf Review ${decision.toLowerCase()}: ${freshItem.title}`
+      );
+
+      const republished = republishItemFromSource(freshItem);
+      await seedSessionForItem(republished, reviewUrl, 'refresh');
+      broadcastSSE('republished', { slug: republished.slug, title: republished.title });
+      return;
+    }
+    default:
+      updateActionState(item.slug, 'failed', `Unsupported decision: ${decision}`);
+  }
+}
+
 // --- API Routes ---
 
 // Publish a new review item (markdown or raw HTML)
-// actions: REQUIRED array of button labels (at least 2). No defaults.
 app.post('/api/publish', (req, res) => {
   try {
-    const { title, markdown, html, slug: rawSlug, category, actions, taskId, projectId, onApprove } = req.body;
+    const {
+      title,
+      markdown,
+      html,
+      slug: rawSlug,
+      category,
+      actions,
+      taskId,
+      projectId,
+      onApprove,
+      workspaceDir,
+      sourcePath,
+    } = req.body;
+
     if (!title || (!markdown && !html)) {
       return res.status(400).json({ error: 'title and (markdown or html) are required' });
     }
-    if (!actions || !Array.isArray(actions) || actions.length < 2 || !actions.every(a => typeof a === 'string')) {
-      return res.status(400).json({ error: 'actions is required: provide a JSON array of at least 2 string button labels. No defaults — every review item must have explicit, contextual actions.' });
-    }
 
-    const normalizedCategory = String(category || 'general').toLowerCase().trim();
+    const normalizedCategory = normalizeCategory(category);
     if (!ALLOWED_CATEGORIES.has(normalizedCategory)) {
       return res.status(400).json({ error: 'Invalid category. Allowed: kitchenlux, outreach, admin, general' });
     }
 
-    // Deterministic processing rule:
-    // Every published review must be linked to a Mindwtr task so decisions
-    // always flow through process-approval.sh without manual fallback.
-    if (REQUIRE_TASK_LINK && !taskId) {
+    const canonicalActions = getCanonicalActions(normalizedCategory);
+    if (actions && !arraysMatchExactly(actions, canonicalActions)) {
       return res.status(400).json({
-        error: 'taskId is required on every publish. Link the review to a Mindwtr task.',
+        error: `actions must exactly match the canonical set for ${normalizedCategory}: ${canonicalActions.join(', ')}`,
       });
     }
 
-    // Backward compatibility when strict task-linking is explicitly disabled.
-    if (!REQUIRE_TASK_LINK && normalizedCategory !== 'general' && !taskId && !projectId) {
-      return res.status(400).json({ error: 'taskId or projectId is required when category is not general' });
+    let resolvedSource;
+    try {
+      resolvedSource = resolveGitTrackedSource(workspaceDir, sourcePath);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
     }
 
-    const source_markdown = markdown || '';
-    const content_hash = createContentHash(title, source_markdown);
+    const content_hash = createContentHash(title, markdown || html || '');
     const existing = stmts.getByContentHash.get(content_hash);
     if (existing) {
       return res.status(200).json({ slug: existing.slug, url: `/review/${existing.slug}`, deduped: true });
     }
 
     const slug = rawSlug ? slugify(rawSlug) : slugify(title) + '-' + Date.now().toString(36);
-    // Sanitize rendered HTML before storage to prevent XSS
-    const rawHtml = html || marked.parse(markdown);
-    const rendered_html = xss(rawHtml, {
-      whiteList: {
-        // Allow standard markdown output tags
-        a: ['href', 'title', 'target'],
-        b: [], strong: [], i: [], em: [], s: [], del: [],
-        p: [], br: [], hr: [],
-        h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
-        ul: [], ol: [], li: [],
-        blockquote: [],
-        pre: ['class'], code: ['class'], // for highlight.js
-        table: [], thead: [], tbody: [], tr: [], th: ['scope'], td: [],
-        img: ['src', 'alt', 'title'],
-        span: ['class'], div: ['class'],
-      },
-      stripIgnoreTag: true,
-    });
-    const actionsJson = actions ? JSON.stringify(actions) : null;
+    const rendered = renderSourceDocument({ markdown, html });
+    const actionsJson = JSON.stringify(canonicalActions);
+    const sessionKey = getSessionKey(slug);
 
     stmts.insert.run({
       slug,
       title,
-      markdown: source_markdown,
-      rendered_html,
+      markdown: rendered.markdown,
+      rendered_html: rendered.rendered_html,
       category: normalizedCategory,
       actions: actionsJson,
       content_hash,
       mindwtr_task_id: taskId || null,
       mindwtr_project_id: projectId || null,
       on_approve: onApprove || null,
+      session_key: sessionKey,
+      workspace_dir: resolvedSource.workspaceDir,
+      source_path: resolvedSource.sourcePath,
+      decision_schema_version: DECISION_SCHEMA_VERSION,
     });
 
-    const plainText = stripMarkdownToPlain(source_markdown || rendered_html);
+    const plainText = stripMarkdownToPlain(rendered.markdown || rendered.rendered_html);
     if (plainText.length >= MIN_TTS_CHARS) {
       db.prepare(`UPDATE items SET tts_status = 'generating' WHERE slug = ?`).run(slug);
       generateReadAloudTTS(slug);
@@ -741,7 +1273,25 @@ app.post('/api/publish', (req, res) => {
     // Broadcast live-refresh event to all connected dashboards
     broadcastSSE('new-item', { slug, title, category: normalizedCategory });
 
-    res.status(201).json({ slug, url: `/review/${slug}`, deduped: false });
+    const reviewBaseUrl = getReviewBaseUrl(req);
+    const reviewUrl = buildReviewUrl(reviewBaseUrl, slug);
+    const item = stmts.getBySlug.get(slug);
+
+    setImmediate(async () => {
+      try {
+        await seedSessionForItem(item, reviewUrl);
+      } catch (error) {
+        console.error(`[publish] Failed to seed session for ${slug}: ${error.message}`);
+      }
+    });
+
+    res.status(201).json({
+      slug,
+      url: `/review/${slug}`,
+      deduped: false,
+      sessionKey,
+      actions: canonicalActions,
+    });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'Slug already exists' });
@@ -774,15 +1324,22 @@ app.get('/api/items/:slug', (req, res) => {
 });
 
 // Decide — unified action endpoint
-// POST /api/items/:slug/decide { decision: "Approve" | "Simply Business" | etc, feedback?: "..." }
 app.post('/api/items/:slug/decide', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
 
   const { decision, feedback } = req.body;
   if (!decision) return res.status(400).json({ error: 'decision is required' });
+  if (!isAllowedDecision(item, decision)) {
+    return res.status(400).json({
+      error: `Invalid decision for ${item.category}. Allowed: ${getActions(item).join(', ')}`,
+    });
+  }
 
   const resolvedFeedback = typeof feedback === 'string' ? feedback : (item.feedback || null);
+  const annotations = listAnnotationsForSlug(req.params.slug);
+  const actionStatus = getInitialActionStatus(decision);
+  const reviewUrl = buildReviewUrl(getReviewBaseUrl(req), req.params.slug);
   const payload = {
     decision,
     title: item.title,
@@ -791,76 +1348,76 @@ app.post('/api/items/:slug/decide', (req, res) => {
     taskId: item.mindwtr_task_id,
     projectId: item.mindwtr_project_id,
     onApprove: item.on_approve,
+    sessionKey: item.session_key || getSessionKey(item.slug),
+    workspaceDir: item.workspace_dir,
+    sourcePath: item.source_path,
+    annotations,
+    actionStatus,
   };
 
   // Transactional: update item + enqueue notification
   const txDecide = db.transaction(() => {
-    stmts.decide.run({ decision, feedback: resolvedFeedback, slug: req.params.slug });
+    stmts.decide.run({
+      slug: req.params.slug,
+      status: getStoredStatusForDecision(decision),
+      decision,
+      feedback: resolvedFeedback,
+      action_status: actionStatus,
+      action_message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
+    });
     stmts.enqueueOutbox.run({ slug: req.params.slug, payload: JSON.stringify(payload) });
-    updateApprovalState(req.params.slug, 'queued', 'Decision saved. Processing linked task...');
   });
   txDecide();
 
   // Broadcast live-refresh event for decision
-  broadcastSSE('decision', { slug: req.params.slug, decision, title: item.title });
+  broadcastSSE('decision', {
+    slug: req.params.slug,
+    decision,
+    title: item.title,
+    status: getStoredStatusForDecision(decision),
+  });
 
   // Fire async drain (best-effort immediate delivery for system event notification)
   void drainDecisionOutbox();
 
   res.json({
-    status: 'decided',
+    status: getStoredStatusForDecision(decision),
     decision,
     slug: req.params.slug,
-    queued: true,
-    processed: false,
-    approval: {
-      status: 'queued',
-      message: 'Decision saved. Processing linked task...',
+    queued: actionStatus === 'queued',
+    processed: actionStatus !== 'queued',
+    sessionKey: payload.sessionKey,
+    action: {
+      status: actionStatus,
+      message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
     },
   });
 
   // Fire-and-forget after the response is on the wire so Jimmy's tap stays snappy.
-  setImmediate(() => {
-    updateApprovalState(req.params.slug, 'processing', 'Processing linked task...');
-    execFile('/bin/bash', [PROCESS_APPROVAL_SCRIPT, req.params.slug], {
-      env: { ...process.env, PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' },
-    }, (err, stdout, stderr) => {
-      const output = [stdout, stderr]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
-      const exitCode = err && Number.isInteger(err.code) ? err.code : 0;
-
-      if (output) {
-        console.log(`[process-approval] ${req.params.slug}\n${output}`);
+  setImmediate(async () => {
+    try {
+      if (actionStatus === 'queued') {
+        updateActionState(req.params.slug, 'running', `Running ${decision} action...`);
       }
-
-      if (!err) {
-        updateApprovalState(req.params.slug, 'succeeded', 'Linked task processed.');
-        broadcastSSE('approval', { slug: req.params.slug, status: 'succeeded' });
-        return;
-      }
-
-      if (exitCode === 2) {
-        updateApprovalState(
-          req.params.slug,
-          'manual_required',
-          'Manual task follow-up required. Benji has been alerted.',
-          2
-        );
-        broadcastSSE('approval', { slug: req.params.slug, status: 'manual_required', exitCode });
-        return;
-      }
-
-      console.error(`[process-approval] Error for ${req.params.slug}: ${err.message}`);
-      updateApprovalState(
-        req.params.slug,
-        'failed',
-        'Decision saved, but linked task processing failed. Benji should check the logs.',
-        exitCode || 1
-      );
-      broadcastSSE('approval', { slug: req.params.slug, status: 'failed', exitCode: exitCode || 1 });
-    });
+      await routeDecisionAction(item, {
+        decision,
+        feedback: resolvedFeedback,
+        annotations,
+        reviewUrl,
+      });
+      const latest = stmts.getBySlug.get(req.params.slug);
+      broadcastSSE('approval', {
+        slug: req.params.slug,
+        status: latest?.action_status || null,
+      });
+    } catch (error) {
+      console.error(`[decision-router] ${req.params.slug}: ${error.message}`);
+      updateActionState(req.params.slug, 'failed', error.message || 'Decision routing failed.');
+      broadcastSSE('approval', {
+        slug: req.params.slug,
+        status: 'failed',
+      });
+    }
   });
 });
 
@@ -876,14 +1433,16 @@ app.post('/api/items/:slug/dismiss', (req, res) => {
   }
 });
 
-// Legacy endpoints (redirect to decide)
+// Deprecated compatibility endpoints
 app.post('/api/items/:slug/approve', (req, res) => {
-  req.body.decision = 'Approve';
-  return app._router.handle({ ...req, url: `/api/items/${req.params.slug}/decide`, method: 'POST' }, res, () => {});
+  return res.status(410).json({
+    error: 'Legacy approve endpoint removed. Use POST /api/items/:slug/decide with a canonical category decision.',
+  });
 });
 app.post('/api/items/:slug/reject', (req, res) => {
-  req.body.decision = 'Reject';
-  return app._router.handle({ ...req, url: `/api/items/${req.params.slug}/decide`, method: 'POST' }, res, () => {});
+  return res.status(410).json({
+    error: 'Legacy reject endpoint removed. Use POST /api/items/:slug/decide with a canonical category decision.',
+  });
 });
 
 // Transcribe audio via OpenAI Whisper API
@@ -990,11 +1549,18 @@ app.post('/api/items/:slug/annotate', (req, res) => {
 
   const annotation = db.prepare('SELECT * FROM annotations WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(annotation);
+
+  setImmediate(async () => {
+    try {
+      await mirrorAnnotationToSession(item, annotation, buildReviewUrl(getReviewBaseUrl(req), req.params.slug));
+    } catch (error) {
+      console.error(`[annotation] Failed to mirror ${req.params.slug}/${annotation.id}: ${error.message}`);
+    }
+  });
 });
 
 app.get('/api/items/:slug/annotations', (req, res) => {
-  const annotations = db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(req.params.slug);
-  res.json(annotations);
+  res.json(listAnnotationsForSlug(req.params.slug));
 });
 
 app.delete('/api/items/:slug/annotations/:id', (req, res) => {
@@ -1018,10 +1584,10 @@ app.get('/api/items/:slug/approval', (req, res) => {
 
   const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
   res.json({
-    status: item.approval_status || null,
-    message: item.approval_message || null,
+    status: item.action_status || item.approval_status || null,
+    message: item.action_message || item.approval_message || null,
     exitCode: item.approval_exit_code ?? null,
-    updatedAt: item.approval_updated_at || null,
+    updatedAt: item.action_updated_at || item.approval_updated_at || null,
   });
 });
 
@@ -1050,14 +1616,38 @@ app.get('/api/items/:slug/context', (req, res) => {
 
 // --- Web Routes ---
 
+app.get('/funnel/index.html', (_req, res) => {
+  res.redirect('/funnel');
+});
+
+app.get(['/funnel', '/funnel/'], (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'public', 'funnel', 'index.html'));
+});
+
 // Dashboard
 app.get('/', (req, res) => {
   const requestedTab = typeof req.query.tab === 'string' ? req.query.tab : 'pending';
-  const tab = requestedTab === 'decided' ? 'decided' : 'pending';
-  const items = stmts.listByStatus.all(tab);
+  const tab = ['pending', 'parked', 'decided'].includes(requestedTab) ? requestedTab : 'pending';
+  let items;
+  if (tab === 'decided') {
+    items = db.prepare(`
+      SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
+             session_key, workspace_dir, source_path, decision_schema_version,
+             action_status, action_message, approval_status, approval_message, approval_exit_code,
+             LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
+             created_at, updated_at
+      FROM items
+      WHERE status NOT IN ('pending', 'parked')
+      ORDER BY updated_at DESC, created_at DESC
+    `).all();
+  } else {
+    items = stmts.listByStatus.all(tab);
+  }
   const counts = {
     pending: stmts.listByStatus.all('pending').length,
-    decided: stmts.listByStatus.all('decided').length,
+    parked: stmts.listByStatus.all('parked').length,
+    decided: db.prepare(`SELECT COUNT(*) AS count FROM items WHERE status NOT IN ('pending', 'parked')`).get().count,
   };
   res.render('dashboard', { items, tab, counts });
 });
@@ -1068,7 +1658,7 @@ app.get('/review/:slug', (req, res) => {
   const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
   if (!item) return res.status(404).send('Not found');
   const actions = getActions(item);
-  const returnTab = req.query.fromTab === 'decided' ? 'decided' : 'pending';
+  const returnTab = ['decided', 'parked'].includes(req.query.fromTab) ? req.query.fromTab : 'pending';
 
   // Chat integration
   let chatToken = '';

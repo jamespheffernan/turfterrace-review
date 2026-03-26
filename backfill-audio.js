@@ -7,6 +7,7 @@ const OpenAI = require('openai');
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { getCanonicalActions } = require('./lib/review-routing');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const db = new Database(path.join(__dirname, 'data', 'reviews.db'));
@@ -93,7 +94,7 @@ async function generateOne(item, idx) {
 
 Keep it under 200 words total. Speak as if giving a quick verbal brief to a busy founder — conversational, direct, no bullet points, no markdown, no filler. Be opinionated where appropriate.`
         },
-        { role: 'user', content: `Document title: ${item.title}\nCategory: ${item.category}\nActions available: ${item.actions || '["Approve","Reject"]'}${projectContext}${memoryContext}\n\n${item.markdown.slice(0, 8000)}` }
+        { role: 'user', content: `Document title: ${item.title}\nCategory: ${item.category}\nActions available: ${item.actions || JSON.stringify(getCanonicalActions(item.category) || [])}${projectContext}${memoryContext}\n\n${item.markdown.slice(0, 8000)}` }
       ],
       max_tokens: 400,
       temperature: 0.7,

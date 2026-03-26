@@ -13,8 +13,14 @@
     <a href="/?tab=pending" class="tab <%= tab === 'pending' ? 'active' : '' %>">
       Pending <span class="count"><%= counts.pending %></span>
     </a>
+    <a href="/?tab=parked" class="tab <%= tab === 'parked' ? 'active' : '' %>">
+      Parked <span class="count"><%= counts.parked %></span>
+    </a>
     <a href="/?tab=decided" class="tab <%= tab === 'decided' ? 'active' : '' %>">
       Decided <span class="count"><%= counts.decided %></span>
+    </a>
+    <a href="/funnel" class="tab">
+      Funnel
     </a>
   </div>
 
@@ -33,12 +39,12 @@
               <span class="category"><%= item.category %></span>
               <span class="length-indicator" aria-label="Length <%= getLengthMarker(item.content_length) %>"><%= getLengthMarker(item.content_length) %></span>
               <span><%= new Date(item.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></span>
-              <% if (item.status === 'decided') { %>
-                <span class="item-decision"><%= item.decision %></span>
+              <% if (item.status !== 'pending') { %>
+                <span class="item-decision"><%= item.decision || item.status %></span>
               <% } %>
             </div>
-            <% if (item.approval_status === 'manual_required') { %>
-              <p class="item-alert">Manual task follow-up required</p>
+            <% if ((item.action_status || item.approval_status) && (item.action_status || item.approval_status) !== 'succeeded') { %>
+              <p class="item-alert"><%= item.action_message || item.approval_message || ('Action status: ' + (item.action_status || item.approval_status)) %></p>
             <% } %>
             <% if (item.feedback) { %>
               <p class="item-feedback">"<%= item.feedback %>"</p>

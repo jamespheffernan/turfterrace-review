@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+  <link rel="icon" type="image/png" href="/favicon.png">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#e6ddd1" />
+    <title>KitchenLux Funnel Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/funnel/styles.css" />
+    <script defer src="/funnel/app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero panel">
+        <div class="hero-copy">
+          <p class="eyebrow">KitchenLux outreach command</p>
+          <h1>Pipeline pressure, decisions, and cadence windows in one screen.</h1>
+          <p class="lede">
+            Built for a quick operational read: what is new, what is due, what is queued to send, and what
+            still needs a push through Turf Review.
+          </p>
+        </div>
+
+        <div class="hero-controls">
+          <div class="meta-chip">
+            <span class="meta-label">Last refresh</span>
+            <strong id="lastUpdated">Loading...</strong>
+          </div>
+          <div class="meta-chip">
+            <span class="meta-label">Next auto-refresh</span>
+            <strong id="nextRefresh">5:00</strong>
+          </div>
+          <button class="refresh-button" id="refreshButton" type="button">Refresh now</button>
+        </div>
+
+        <div class="headline-stats" id="headlineStats"></div>
+      </header>
+
+      <section class="panel approval-panel" aria-labelledby="approval-heading">
+        <div class="section-top">
+          <div>
+            <p class="section-kicker">Decision status bar</p>
+            <h2 id="approval-heading">Draft readiness across Turf Review and the send queue.</h2>
+          </div>
+        </div>
+
+        <div class="metric-ribbon" id="approvalMetrics"></div>
+        <div class="pending-batches" id="pendingBatches"></div>
+      </section>
+
+      <section class="pipeline-layout">
+        <div class="panel funnel-panel" aria-labelledby="pipeline-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Pipeline funnel</p>
+              <h2 id="pipeline-heading">Where each relationship sits right now.</h2>
+            </div>
+          </div>
+
+          <div class="funnel-track" id="funnelTrack"></div>
+        </div>
+
+        <aside class="panel detail-panel" aria-labelledby="stage-detail-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Stage detail</p>
+              <h2 id="stage-detail-heading">Contacts in the selected funnel stage.</h2>
+            </div>
+          </div>
+
+          <div class="detail-summary">
+            <div>
+              <p class="detail-stage-label" id="detailStageLabel">Loading...</p>
+              <p class="detail-stage-meta" id="detailStageMeta"></p>
+            </div>
+            <div class="segmented-control" id="contactTypeFilter"></div>
+          </div>
+
+          <div class="contact-list" id="contactList"></div>
+        </aside>
+      </section>
+
+      <section class="insight-grid">
+        <article class="panel" aria-labelledby="worklist-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Due and overdue</p>
+              <h2 id="worklist-heading">Who needs a touch next.</h2>
+            </div>
+          </div>
+          <div class="stack-list" id="workList"></div>
+        </article>
+
+        <article class="panel" aria-labelledby="performance-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Response and conversion</p>
+              <h2 id="performance-heading">Pipeline yield and velocity.</h2>
+            </div>
+          </div>
+          <div class="metric-grid compact" id="performanceMetrics"></div>
+        </article>
+
+        <article class="panel" aria-labelledby="runway-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Pipeline runway</p>
+              <h2 id="runway-heading">How long the pipeline can sustain cadence.</h2>
+            </div>
+          </div>
+          <div id="runwayCard"></div>
+          <div class="shortcut-grid" id="operatorShortcuts"></div>
+        </article>
+
+        <article class="panel" aria-labelledby="responses-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Recent replies</p>
+              <h2 id="responses-heading">Latest response signals.</h2>
+            </div>
+          </div>
+          <div class="stack-list" id="recentResponses"></div>
+        </article>
+
+        <article class="panel" aria-labelledby="jimmy-heading">
+          <div class="section-top">
+            <div>
+              <p class="section-kicker">Needs Jimmy</p>
+              <h2 id="jimmy-heading">Contacts flagged for manual attention.</h2>
+            </div>
+          </div>
+          <div class="stack-list" id="needsJimmy"></div>
+        </article>
+      </section>
+
+      <section class="panel calendar-panel" aria-labelledby="calendar-heading">
+        <div class="section-top calendar-top">
+          <div>
+            <p class="section-kicker">Outreach calendar</p>
+            <h2 id="calendar-heading">Scheduled sends and follow-up deadlines by day.</h2>
+          </div>
+
+          <div class="calendar-actions">
+            <div class="segmented-control" id="calendarModeToggle"></div>
+          </div>
+        </div>
+
+        <div class="legend" id="calendarLegend"></div>
+
+        <div class="calendar-layout">
+          <div class="calendar-board-wrap">
+            <div class="calendar-weekdays" id="calendarWeekdays"></div>
+            <div class="calendar-grid" id="calendarGrid"></div>
+          </div>
+
+          <aside class="day-detail" id="dayDetail"></aside>
+        </div>
+      </section>
+
+      <section class="panel source-panel" aria-labelledby="source-heading">
+        <div class="section-top">
+          <div>
+            <p class="section-kicker">Source health</p>
+            <h2 id="source-heading">What fed this snapshot and where the gaps are.</h2>
+          </div>
+        </div>
+
+        <div class="source-grid" id="sourceStatus"></div>
+        <div class="warning-stack" id="warningList"></div>
+      </section>
+    </div>
+  </body>
+</html>

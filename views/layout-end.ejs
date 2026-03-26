@@ -24,5 +24,27 @@
     }, opts.duration || 2500);
   };
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#2d2d2d',
+        primaryBorderColor: '#555',
+        lineColor: '#888',
+        textColor: '#e0e0e0',
+        fontSize: '24px',
+        fontFamily: 'Outfit, sans-serif'
+      },
+      flowchart: {
+        nodeSpacing: 50,
+        rankSpacing: 80,
+        padding: 20,
+        htmlLabels: true,
+        useMaxWidth: false
+      }
+    });
+  </script>
 </body>
 </html>

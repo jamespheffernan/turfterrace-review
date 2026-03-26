@@ -1,0 +1,37 @@
+[
+  {
+    "slug": "d0-batch-apr-02-mn75kabt",
+    "category": "outreach",
+    "workspaceDir": "/absolute/path/to/git/workspace",
+    "sourcePath": "/absolute/path/to/git/workspace/path/to/source.md",
+    "confirmed": false
+  },
+  {
+    "slug": "doc-gardener-weekly-report-mn6m9mls",
+    "category": "general",
+    "workspaceDir": "/absolute/path/to/git/workspace",
+    "sourcePath": "/absolute/path/to/git/workspace/path/to/source.md",
+    "confirmed": false
+  },
+  {
+    "slug": "reddit-monitoring-implementation-plan-mn32z3xq",
+    "category": "general",
+    "workspaceDir": "/absolute/path/to/git/workspace",
+    "sourcePath": "/absolute/path/to/git/workspace/path/to/source.md",
+    "confirmed": false
+  },
+  {
+    "slug": "kitchenlux-kit-shopping-list-mmxm5b8x",
+    "category": "admin",
+    "workspaceDir": "/absolute/path/to/git/workspace",
+    "sourcePath": "/absolute/path/to/git/workspace/path/to/source.md",
+    "confirmed": false
+  },
+  {
+    "slug": "kitchenlux-high-touch-outreach-brainstorm-mmt18gu3",
+    "category": "kitchenlux",
+    "workspaceDir": "/absolute/path/to/git/workspace",
+    "sourcePath": "/absolute/path/to/git/workspace/path/to/source.md",
+    "confirmed": false
+  }
+]

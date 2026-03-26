@@ -1,15 +1,16 @@
 <%- include('layout-start', { pageTitle: item.title }) %>
-<% if (typeof chatToken !== 'undefined' && chatToken) { %>
-<link rel="stylesheet" href="/chat.css">
-<style>
-  /* Ensure chat buttons aren't hidden behind mobile browser chrome */
-  .action-bar--decided { margin-bottom: 120px; padding-bottom: env(safe-area-inset-bottom, 20px); }
-  .btn-chat { min-height: 44px; }
-</style>
+<% var hasChat = (typeof chatToken !== 'undefined' && chatToken); %>
+<% var chatActionNames = ['chat with author', 'chat', 'ask ai']; %>
+<% var sidebarActions = (typeof actions !== 'undefined' && actions) ? actions.filter(function(a) { return chatActionNames.indexOf(a.toLowerCase()) === -1; }) : []; %>
+<% var actionStatus = item.action_status || item.approval_status; %>
+<% var actionMessage = item.action_message || item.approval_message; %>
+<% if (!hasChat && typeof actions !== 'undefined' && actions) { hasChat = actions.some(function(a) { return chatActionNames.indexOf(a.toLowerCase()) !== -1; }); } %>
+<% if (hasChat) { %>
+<link rel="stylesheet" href="/chat.css?v=<%= Date.now() %>">
 <% } %>
 
 <!-- Sticky back button -->
-<a href="/" class="back-btn" title="Back to queue">
+<a href="/?tab=<%= returnTab %>" class="back-btn" title="Back to queue">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
   <span>Queue</span>
 </a>
@@ -35,12 +36,12 @@
     </div>
   <% } %>
 
-  <% if (item.approval_status === 'manual_required') { %>
-    <div class="approval-alert">Manual task follow-up required</div>
+  <% if (actionStatus && actionStatus !== 'succeeded') { %>
+    <div class="approval-alert"><%= actionMessage || ('Action status: ' + actionStatus) %></div>
   <% } %>
 
   <!-- Audio players -->
-  <% if (item.tts_status === 'ready' || item.context_audio_status === 'ready') { %>
+  <% if (item.tts_status === 'ready' || item.context_status === 'ready') { %>
   <div class="audio-players">
     <% if (item.tts_status === 'ready') { %>
       <div class="tts-player">
@@ -50,7 +51,7 @@
         </audio>
       </div>
     <% } %>
-    <% if (item.context_audio_status === 'ready') { %>
+    <% if (item.context_status === 'ready') { %>
       <div class="tts-player">
         <span class="audio-label">💬 Context</span>
         <audio controls preload="none">
@@ -74,81 +75,131 @@
 
 <% if (item.status === 'pending') { %>
 <!-- Desktop: sticky sidebar -->
-<aside class="action-sidebar">
+<aside class="action-sidebar" id="reviewSidebar">
   <div class="action-sidebar-inner">
-    <div class="action-sidebar-buttons">
-      <% actions.forEach(function(action, i) { %>
-        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
-          <%= action %>
-        </button>
-      <% }); %>
-      <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-        <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
-      <% } %>
-    </div>
-    <div class="action-sidebar-feedback">
-      <label class="feedback-label" for="sidebarFeedback">Feedback</label>
-      <textarea id="sidebarFeedback" placeholder="Add feedback (optional)" class="feedback-textarea" rows="4" oninput="syncAllFeedback(this.value)"></textarea>
-      <button type="button" id="sidebarDictateBtn" class="sidebar-dictate-btn" onclick="toggleSidebarDictation()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        <span>Dictate feedback</span>
+    <% if (hasChat) { %>
+    <div class="sidebar-toggle-row">
+      <div class="sidebar-toggle">
+        <button class="sidebar-toggle-btn active" id="decideTab" type="button">Decide</button>
+        <button class="sidebar-toggle-btn" id="chatTab" type="button">Chat<span class="chat-dot" id="chatDot" style="display:none;"></span></button>
+      </div>
+      <button type="button" class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
+    <% } %>
+
+    <div class="decide-view" id="decideView">
+      <div class="action-sidebar-buttons">
+        <% sidebarActions.forEach(function(action, i) { %>
+          <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+            <%= action %>
+          </button>
+        <% }); %>
+      </div>
+      <div class="action-sidebar-feedback">
+        <label class="feedback-label" for="sidebarFeedback">Feedback</label>
+        <textarea id="sidebarFeedback" placeholder="Add feedback (optional)" class="feedback-textarea" rows="4" oninput="syncAllFeedback(this.value)"></textarea>
+        <button type="button" id="sidebarDictateBtn" class="sidebar-dictate-btn" onclick="toggleSidebarDictation()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          <span>Dictate feedback</span>
+        </button>
+      </div>
+    </div>
+
+    <% if (hasChat) { %>
+    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>" data-chat-token="<%= typeof chatToken !== 'undefined' ? chatToken : '' %>">
+      <div class="chat-header">
+        <div class="chat-header-copy">
+          <span class="chat-title">Ask about this review</span>
+          <span class="chat-status" id="chatStatus">Ready when you are</span>
+        </div>
+        <button id="chatNewBtn" class="chat-new-btn" type="button">Fresh thread</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" id="chatInput" class="chat-input" placeholder="Ask what matters, what is risky, or what to change first." aria-label="Ask about this review">
+        <button id="chatSendBtn" class="chat-send" type="button" aria-label="Send chat message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+      </div>
+    </div>
+    <% } %>
   </div>
 </aside>
+<button type="button" class="sidebar-overlay" id="sidebarOverlay" aria-label="Close chat panel"></button>
 <% } else { %>
 <!-- Desktop: decided sidebar -->
-<aside class="action-sidebar">
+<aside class="action-sidebar" id="reviewSidebar">
   <div class="action-sidebar-inner">
-    <div class="decided-sidebar">
-      <div class="sidebar-label">Decision</div>
-      <div class="sidebar-decision"><%= item.decision || item.status %></div>
-      <% if (item.feedback) { %>
-        <div class="sidebar-label" style="margin-top: 16px;">Feedback</div>
-        <div class="sidebar-feedback-text">"<%= item.feedback %>"</div>
-      <% } %>
-      <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-        <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
-      <% } %>
+    <% if (hasChat) { %>
+    <div class="sidebar-toggle-row">
+      <div class="sidebar-toggle">
+        <button class="sidebar-toggle-btn active" id="decideTab" type="button">Decide</button>
+        <button class="sidebar-toggle-btn" id="chatTab" type="button">Chat<span class="chat-dot" id="chatDot" style="display:none;"></span></button>
+      </div>
+      <button type="button" class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     </div>
+    <% } %>
+
+    <div class="decide-view" id="decideView">
+      <div class="decided-sidebar">
+        <div class="sidebar-label">Decision</div>
+        <div class="sidebar-decision"><%= item.decision || item.status %></div>
+        <% if (item.feedback) { %>
+          <div class="sidebar-label" style="margin-top: 16px;">Feedback</div>
+          <div class="sidebar-feedback-text">"<%= item.feedback %>"</div>
+        <% } %>
+      </div>
+    </div>
+
+    <% if (hasChat) { %>
+    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>" data-chat-token="<%= typeof chatToken !== 'undefined' ? chatToken : '' %>">
+      <div class="chat-header">
+        <div class="chat-header-copy">
+          <span class="chat-title">Ask about this review</span>
+          <span class="chat-status" id="chatStatus">Ready when you are</span>
+        </div>
+        <button id="chatNewBtn" class="chat-new-btn" type="button">Fresh thread</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" id="chatInput" class="chat-input" placeholder="Ask what matters, what is risky, or what to change first." aria-label="Ask about this review">
+        <button id="chatSendBtn" class="chat-send" type="button" aria-label="Send chat message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+      </div>
+    </div>
+    <% } %>
   </div>
 </aside>
+<button type="button" class="sidebar-overlay" id="sidebarOverlay" aria-label="Close chat panel"></button>
 <% } %>
 </div><!-- /.review-layout -->
 
-<% if (item.status === 'pending') { %>
-<!-- Mobile: inline action buttons after content -->
-<div class="action-bar">
-  <div class="action-form">
-    <div class="action-buttons">
-      <% actions.forEach(function(action, i) { %>
-        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
-          <%= action %>
-        </button>
-      <% }); %>
-    </div>
-    <div class="feedback-wrapper">
-      <input type="text" id="feedbackInput" placeholder="Add feedback (optional)" class="feedback-input">
-    </div>
-  </div>
-</div>
-
 <!-- Floating buttons: mic + decision quick-access + chat -->
+<% if (hasChat || item.status === 'pending') { %>
 <div class="floating-buttons">
-  <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-  <button type="button" class="btn-fab btn-fab-chat btn-chat" title="Chat with Author">
+  <% if (hasChat) { %>
+  <button type="button" class="btn-fab btn-fab-chat" id="mobileChatFab" title="Chat">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
   </button>
   <% } %>
+  <% if (item.status === 'pending') { %>
   <button type="button" id="decisionFab" class="btn-fab btn-fab-decision" onclick="toggleDecisionPanel()" title="Quick decision">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
   </button>
   <button type="button" id="micBtn" class="btn-fab btn-fab-mic" onclick="toggleDictation()" title="Dictate feedback">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
   </button>
+  <% } %>
 </div>
+<% } %>
 
 <!-- Quick decision panel (slides up from floating button) -->
+<% if (item.status === 'pending') { %>
 <div id="decisionPanel" class="decision-panel" style="display:none;">
   <div class="decision-panel-inner">
     <div class="decision-panel-header">
@@ -156,7 +207,7 @@
       <button type="button" onclick="toggleDecisionPanel()" class="decision-panel-close">✕</button>
     </div>
     <div class="decision-panel-buttons">
-      <% actions.forEach(function(action, i) { %>
+      <% sidebarActions.forEach(function(action, i) { %>
         <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
           <%= action %>
         </button>
@@ -165,16 +216,14 @@
     <input type="text" id="feedbackInputPanel" placeholder="Feedback (optional)" class="feedback-input" oninput="syncFeedback(this.value)">
   </div>
 </div>
+<% } %>
 
-<% } else { %>
+<% if (item.status !== 'pending') { %>
 <div class="action-bar action-bar--decided">
   <div class="decided-summary">
     <strong>Decision:</strong> <%= item.decision || item.status %>
     <% if (item.feedback) { %> — "<%= item.feedback %>"<% } %>
   </div>
-  <% if (typeof chatToken !== 'undefined' && chatToken) { %>
-    <button type="button" class="btn btn-chat" title="Chat with Author">Chat with Author</button>
-  <% } %>
 </div>
 <% } %>
 
@@ -699,7 +748,7 @@
   }
 
   async function deleteAnnotation(id) {
-    await fetch('/api/items/' + SLUG + '/annotate/' + id, { method: 'DELETE' });
+    await fetch('/api/items/' + SLUG + '/annotations/' + id, { method: 'DELETE' });
   }
 
   function escapeHtml(str) {
@@ -758,30 +807,11 @@
   }
 </script>
 
-<% if (typeof chatToken !== 'undefined' && chatToken) { %>
-<!-- Chat Panel -->
-<div id="chatOverlay" class="chat-overlay"></div>
-<div id="chatPanel" class="chat-panel" data-slug="<%= item.slug %>" data-chat-token="<%= chatToken %>" data-category="<%= item.category %>">
-  <div class="chat-header">
-    <div class="chat-header-left">
-      <span class="chat-header-title" id="chatAgentLabel">Chat with Author</span>
-    </div>
-    <div class="chat-header-actions">
-      <button id="chatNewBtn" class="btn-new-chat" title="New Chat">New</button>
-      <button id="chatCloseBtn" class="btn-close-chat" title="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-  </div>
-  <div id="chatMessages" class="chat-messages"></div>
-  <div class="chat-input-area">
-    <textarea id="chatInput" class="chat-input" placeholder="Ask about this review..." rows="1"></textarea>
-    <button id="chatSendBtn" class="btn-send" title="Send" disabled>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-    </button>
-  </div>
-</div>
+<!-- DEBUG: template version marker -->
+<div id="tmpl-debug" style="display:none;" data-version="chat-redesign-v1" data-has-chat="<%= hasChat %>"></div>
+
+<% if (hasChat) { %>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="/chat.js"></script>
+<script src="/chat.js?v=<%= Date.now() %>"></script>
 <% } %>
 <%- include('layout-end') %>
