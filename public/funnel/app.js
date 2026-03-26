@@ -4,6 +4,8 @@ const state = {
   data: null,
   selectedStage: null,
   contactType: "all",
+  contactSearch: "",
+  detailLimit: 12,
   calendarMode: window.innerWidth < 760 ? "week" : "month",
   selectedDay: null,
   refreshTimer: null,
@@ -22,6 +24,8 @@ const elements = {
   detailStageLabel: document.getElementById("detailStageLabel"),
   detailStageMeta: document.getElementById("detailStageMeta"),
   contactTypeFilter: document.getElementById("contactTypeFilter"),
+  contactSearch: document.getElementById("contactSearch"),
+  detailHighlights: document.getElementById("detailHighlights"),
   contactList: document.getElementById("contactList"),
   workList: document.getElementById("workList"),
   performanceMetrics: document.getElementById("performanceMetrics"),
@@ -253,11 +257,29 @@ function getVisibleDays() {
 
 function getStageContacts() {
   if (!state.data || !state.selectedStage) return [];
-  const filtered = state.data.contacts.filter((contact) => {
-    if (contact.funnelStage !== state.selectedStage) return false;
-    if (state.contactType === "all") return true;
-    return contact.type === state.contactType;
-  });
+  const query = state.contactSearch.trim().toLowerCase();
+  const filtered = state.data.contacts
+    .filter((contact) => {
+      if (contact.funnelStage !== state.selectedStage) return false;
+      if (state.contactType === "all") return true;
+      return contact.type === state.contactType;
+    })
+    .filter((contact) => {
+      if (!query) return true;
+      const haystack = [
+        contact.name,
+        contact.contactName,
+        contact.email,
+        contact.regionLabel,
+        contact.channelLabel,
+        contact.website,
+        contact.websiteUrl,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
 
   return filtered.sort((left, right) => {
     const leftUrgency = typeof left.daysUntilNextAction === "number" ? left.daysUntilNextAction : Number.POSITIVE_INFINITY;
@@ -414,6 +436,7 @@ function renderFunnel() {
   elements.funnelTrack.querySelectorAll("[data-stage]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedStage = button.getAttribute("data-stage");
+      state.detailLimit = 12;
       renderStageDetail();
       renderFunnel();
     });
@@ -456,6 +479,7 @@ function renderContactFilters(stageContacts) {
   elements.contactTypeFilter.querySelectorAll("[data-contact-type]").forEach((button) => {
     button.addEventListener("click", () => {
       state.contactType = button.getAttribute("data-contact-type");
+      state.detailLimit = 12;
       renderStageDetail();
     });
   });
@@ -465,17 +489,33 @@ function renderStageDetail() {
   if (!state.data || !state.selectedStage) return;
   const stageContacts = state.data.contacts.filter((contact) => contact.funnelStage === state.selectedStage);
   const filteredContacts = getStageContacts();
+  const visibleContacts = filteredContacts.slice(0, state.detailLimit);
+  const overdueCount = filteredContacts.filter((contact) => typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0).length;
+  const propertyManagerCount = filteredContacts.filter((contact) => contact.type === "pm").length;
+  const influencerCount = filteredContacts.filter((contact) => contact.type === "influencer").length;
 
   elements.detailStageLabel.textContent = STAGE_LABELS[state.selectedStage] || state.selectedStage;
-  elements.detailStageMeta.textContent = `${filteredContacts.length} shown • ${stageContacts.length} in this stage`;
+  elements.detailStageMeta.textContent = `${visibleContacts.length} visible • ${filteredContacts.length} matching • ${stageContacts.length} in stage`;
   renderContactFilters(stageContacts);
+  if (elements.contactSearch) {
+    elements.contactSearch.value = state.contactSearch;
+  }
+  if (elements.detailHighlights) {
+    elements.detailHighlights.innerHTML = [
+      `${propertyManagerCount} PMs`,
+      `${influencerCount} influencers`,
+      overdueCount ? `${overdueCount} overdue` : "Nothing overdue",
+    ]
+      .map((value) => `<span class="detail-chip">${escapeHtml(value)}</span>`)
+      .join("");
+  }
 
   if (!filteredContacts.length) {
     elements.contactList.innerHTML = emptyState("No contacts match this stage and filter.");
     return;
   }
 
-  elements.contactList.innerHTML = filteredContacts
+  elements.contactList.innerHTML = visibleContacts
     .map((contact) => {
       const chips = [
         contact.typeLabel,
@@ -508,9 +548,24 @@ function renderStageDetail() {
         </article>
       `;
     })
-    .join("");
+    .join("") + (
+      filteredContacts.length > visibleContacts.length
+        ? `
+          <button class="load-more-button" id="loadMoreContacts" type="button">
+            Show ${Math.min(12, filteredContacts.length - visibleContacts.length)} more contacts
+          </button>
+        `
+        : ""
+    );
 
   bindCopyActions(elements.contactList);
+  const loadMoreButton = document.getElementById("loadMoreContacts");
+  if (loadMoreButton) {
+    loadMoreButton.addEventListener("click", () => {
+      state.detailLimit += 12;
+      renderStageDetail();
+    });
+  }
 }
 
 function renderWorkList() {
@@ -967,6 +1022,14 @@ async function initialize() {
   elements.needsJimmy.innerHTML = emptyState("Loading operator flags...");
   elements.pendingBatches.innerHTML = emptyState("Loading approval data...");
   elements.dayDetail.innerHTML = emptyState("Loading calendar...");
+
+  if (elements.contactSearch) {
+    elements.contactSearch.addEventListener("input", (event) => {
+      state.contactSearch = event.target.value || "";
+      state.detailLimit = 12;
+      renderStageDetail();
+    });
+  }
 
   try {
     await fetchDashboard();

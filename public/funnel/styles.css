@@ -389,6 +389,10 @@ body::before {
 .detail-panel {
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  min-height: 0;
 }
 
 .detail-summary {
@@ -408,6 +412,55 @@ body::before {
 .detail-stage-meta {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.detail-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.search-shell {
+  display: grid;
+  gap: 6px;
+}
+
+.search-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.search-shell input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 250, 242, 0.94);
+  color: var(--ink);
+  font: inherit;
+  padding: 12px 16px;
+}
+
+.search-shell input:focus {
+  outline: none;
+  border-color: rgba(138, 91, 51, 0.34);
+  box-shadow: 0 0 0 3px rgba(138, 91, 51, 0.08);
+}
+
+.detail-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-chip {
+  border-radius: 999px;
+  background: rgba(138, 91, 51, 0.1);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 8px 12px;
 }
 
 .segmented-control {
@@ -436,6 +489,10 @@ body::before {
 .contact-list {
   display: grid;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .contact-row {
@@ -443,12 +500,10 @@ body::before {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  padding: 15px 0;
-  border-top: 1px solid var(--line);
-}
-
-.contact-row:first-child {
-  border-top: none;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 250, 242, 0.78);
 }
 
 .contact-name {
@@ -497,6 +552,24 @@ body::before {
 .mini-action small {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.load-more-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 250, 242, 0.88);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 12px 16px;
+  transition: transform 180ms ease, border-color 180ms ease;
+}
+
+.load-more-button:hover,
+.load-more-button:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
 }
 
 .mini-action,
@@ -962,6 +1035,11 @@ body::before {
   .day-detail {
     position: static;
   }
+
+  .detail-panel {
+    position: static;
+    max-height: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -989,6 +1067,12 @@ body::before {
 
   .contact-side {
     text-align: left;
+  }
+
+  .contact-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
