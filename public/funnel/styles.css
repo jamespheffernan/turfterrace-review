@@ -245,6 +245,26 @@ body::before {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.view-nav {
+  margin: 18px 0;
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.view-nav-top {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.view-nav-top h2 {
+  max-width: 18ch;
+}
+
+.view-toggle .segment-button {
+  min-width: 120px;
+  font-weight: 700;
+}
+
 .stat-card {
   padding: 16px;
 }
@@ -285,6 +305,36 @@ body::before {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.approval-summary {
+  margin-bottom: 14px;
+}
+
+.approval-brief-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(53, 95, 134, 0.08), rgba(255, 250, 242, 0.92));
+}
+
+.approval-brief-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.approval-brief-card strong {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.approval-brief-card small {
+  color: var(--muted);
+}
+
 .metric-chip {
   padding: 16px;
 }
@@ -320,13 +370,15 @@ body::before {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .batch-link {
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
   gap: 14px;
-  align-items: center;
+  align-items: flex-start;
   text-decoration: none;
   color: inherit;
   padding: 16px 18px;
@@ -352,7 +404,6 @@ body::before {
 }
 
 .batch-state {
-  flex-shrink: 0;
   border-radius: 999px;
   background: var(--blue-soft);
   color: var(--blue);
@@ -1426,6 +1477,10 @@ body::before {
     grid-template-columns: 1fr;
   }
 
+  .pending-batches {
+    grid-template-columns: 1fr;
+  }
+
   .pipeline-layout,
   .calendar-layout {
     grid-template-columns: 1fr;
@@ -1513,10 +1568,6 @@ body::before {
     order: 3;
   }
 
-  .insight-grid {
-    order: 4;
-  }
-
   .detail-panel {
     order: 5;
   }
@@ -1548,8 +1599,18 @@ body::before {
 
   .hero-controls,
   .detail-summary,
-  .section-top {
+  .section-top,
+  .view-nav-top {
     flex-direction: column;
+  }
+
+  .view-toggle {
+    width: 100%;
+  }
+
+  .view-toggle .segment-button {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
   }
 
   .calendar-weekdays,

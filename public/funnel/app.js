@@ -1,7 +1,9 @@
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const VIEWS = ["overview", "work", "calendar", "system"];
 
 const state = {
   data: null,
+  activeView: "overview",
   selectedStage: null,
   contactType: "all",
   contactSearch: "",
@@ -20,6 +22,8 @@ const elements = {
   refreshButton: document.getElementById("refreshButton"),
   heroBrief: document.getElementById("heroBrief"),
   headlineStats: document.getElementById("headlineStats"),
+  viewToggle: document.getElementById("viewToggle"),
+  approvalSummary: document.getElementById("approvalSummary"),
   approvalMetrics: document.getElementById("approvalMetrics"),
   pendingBatches: document.getElementById("pendingBatches"),
   funnelTrack: document.getElementById("funnelTrack"),
@@ -256,6 +260,61 @@ function emptyState(message) {
   return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
+function parseViewFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const candidate = params.get("view") || window.location.hash.replace("#", "");
+  return VIEWS.includes(candidate) ? candidate : "overview";
+}
+
+function updateViewUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", state.activeView);
+  url.hash = state.activeView;
+  window.history.replaceState({}, "", url);
+}
+
+function renderViewToggle() {
+  if (!elements.viewToggle) return;
+  const labels = {
+    overview: "Overview",
+    work: "Work queue",
+    calendar: "Calendar",
+    system: "System",
+  };
+
+  elements.viewToggle.innerHTML = VIEWS
+    .map(
+      (view) => `
+        <button class="segment-button ${state.activeView === view ? "active" : ""}" type="button" data-view-toggle="${view}">
+          ${escapeHtml(labels[view])}
+        </button>
+      `,
+    )
+    .join("");
+
+  elements.viewToggle.querySelectorAll("[data-view-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextView = button.getAttribute("data-view-toggle");
+      if (!nextView || nextView === state.activeView) return;
+      state.activeView = nextView;
+      updateViewUrl();
+      applyActiveView({ scroll: true });
+    });
+  });
+}
+
+function applyActiveView({ scroll = false } = {}) {
+  document.querySelectorAll("[data-view]").forEach((section) => {
+    const views = (section.getAttribute("data-view") || "").split(/\s+/).filter(Boolean);
+    const isVisible = views.includes(state.activeView);
+    section.hidden = !isVisible;
+  });
+  renderViewToggle();
+  if (scroll) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
 function renderContactActions(contact) {
   const actions = [
     copyAction("Copy ID", contact.id),
@@ -480,6 +539,26 @@ function renderApprovalSection() {
       tone: "failed",
     },
   ];
+
+  if (elements.approvalSummary) {
+    const summaryLine = approval.pendingDrafts
+      ? `${approval.pendingDrafts} draft${approval.pendingDrafts === 1 ? "" : "s"} still need a decision before they can move.`
+      : approval.approvedQueued
+        ? `${approval.approvedQueued} item${approval.approvedQueued === 1 ? "" : "s"} are ready for send.`
+        : "No backlog in Turf Review right now.";
+    const queueLine = approval.failedQueue
+      ? `${approval.failedQueue} failed send${approval.failedQueue === 1 ? "" : "s"} need cleanup.`
+      : approval.sentToday
+        ? `${approval.sentToday} sends already landed today.`
+        : "Send queue is quiet.";
+    elements.approvalSummary.innerHTML = `
+      <article class="approval-brief-card">
+        <span class="approval-brief-label">Decision posture</span>
+        <strong>${escapeHtml(summaryLine)}</strong>
+        <small>${escapeHtml(queueLine)}</small>
+      </article>
+    `;
+  }
 
   elements.approvalMetrics.innerHTML = metrics
     .map(
@@ -1331,6 +1410,7 @@ function renderMeta() {
 }
 
 function renderAll() {
+  renderViewToggle();
   renderMeta();
   renderHeroBrief();
   renderHeadlineStats();
@@ -1345,6 +1425,7 @@ function renderAll() {
   renderNeedsJimmy();
   renderCalendar();
   renderSourceStatus();
+  applyActiveView();
 }
 
 async function fetchDashboard({ fresh = false } = {}) {
@@ -1385,8 +1466,10 @@ function armAutoRefresh() {
 }
 
 async function initialize() {
+  state.activeView = parseViewFromLocation();
   renderCalendarLegend();
   renderCalendarControls();
+  renderViewToggle();
   elements.contactList.innerHTML = emptyState("Loading contacts...");
   elements.workList.innerHTML = emptyState("Loading due work...");
   elements.performanceMetrics.innerHTML = emptyState("Loading performance metrics...");
@@ -1431,6 +1514,11 @@ elements.refreshButton.addEventListener("click", async () => {
     state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
     renderMeta();
   }
+});
+
+window.addEventListener("popstate", () => {
+  state.activeView = parseViewFromLocation();
+  applyActiveView();
 });
 
 initialize();

@@ -43,7 +43,17 @@
         <div class="headline-stats" id="headlineStats"></div>
       </header>
 
-      <section class="panel approval-panel" aria-labelledby="approval-heading">
+      <nav class="view-nav panel" aria-label="Funnel views">
+        <div class="section-top view-nav-top">
+          <div>
+            <p class="section-kicker">Views</p>
+            <h2>Split the dashboard by decision horizon.</h2>
+          </div>
+          <div class="segmented-control view-toggle" id="viewToggle"></div>
+        </div>
+      </nav>
+
+      <section class="panel approval-panel" aria-labelledby="approval-heading" data-view="overview work">
         <div class="section-top">
           <div>
             <p class="section-kicker">Decision status bar</p>
@@ -51,11 +61,12 @@
           </div>
         </div>
 
+        <div class="approval-summary" id="approvalSummary"></div>
         <div class="metric-ribbon" id="approvalMetrics"></div>
         <div class="pending-batches" id="pendingBatches"></div>
       </section>
 
-      <section class="pipeline-layout">
+      <section class="pipeline-layout" data-view="overview work">
         <div class="panel funnel-panel" aria-labelledby="pipeline-heading">
           <div class="section-top">
             <div>
@@ -96,7 +107,7 @@
         </aside>
       </section>
 
-      <section class="operator-grid">
+      <section class="operator-grid" data-view="work">
         <article class="panel operator-panel operator-panel-primary" aria-labelledby="worklist-heading">
           <div class="section-top">
             <div>
@@ -128,7 +139,7 @@
         </article>
       </section>
 
-      <section class="system-grid">
+      <section class="system-grid" data-view="overview system">
         <article class="panel panel-span-2" aria-labelledby="performance-heading">
           <div class="section-top">
             <div>
@@ -151,7 +162,7 @@
         </article>
       </section>
 
-      <section class="panel calendar-panel" aria-labelledby="calendar-heading">
+      <section class="panel calendar-panel" aria-labelledby="calendar-heading" data-view="calendar">
         <div class="section-top calendar-top">
           <div>
             <p class="section-kicker">Outreach calendar</p>
@@ -176,7 +187,7 @@
         </div>
       </section>
 
-      <section class="panel source-panel" aria-labelledby="source-heading">
+      <section class="panel source-panel" aria-labelledby="source-heading" data-view="system">
         <div class="section-top">
           <div>
             <p class="section-kicker">System health</p>
