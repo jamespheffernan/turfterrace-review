@@ -28,6 +28,7 @@ const elements = {
   contactTypeFilter: document.getElementById("contactTypeFilter"),
   contactSearch: document.getElementById("contactSearch"),
   detailHighlights: document.getElementById("detailHighlights"),
+  detailOverview: document.getElementById("detailOverview"),
   contactList: document.getElementById("contactList"),
   workList: document.getElementById("workList"),
   performanceMetrics: document.getElementById("performanceMetrics"),
@@ -37,6 +38,7 @@ const elements = {
   needsJimmy: document.getElementById("needsJimmy"),
   calendarModeToggle: document.getElementById("calendarModeToggle"),
   calendarLegend: document.getElementById("calendarLegend"),
+  calendarOverview: document.getElementById("calendarOverview"),
   calendarWeekdays: document.getElementById("calendarWeekdays"),
   calendarGrid: document.getElementById("calendarGrid"),
   dayDetail: document.getElementById("dayDetail"),
@@ -70,6 +72,28 @@ const STATUS_TONES = {
   pending_review: "tone-pending_review",
   not_drafted: "tone-not_drafted",
   failed: "tone-failed",
+};
+const STAGE_PLAYBOOK = {
+  new_lead: {
+    cue: "Largest untouched inventory",
+    move: "Protect quality here. Use this stage to identify the best-fit PMs and keep new names from stalling before first touch.",
+  },
+  contacted: {
+    cue: "Waiting for the first signal back",
+    move: "Watch for replies, bounces, and anything that should be escalated or moved back into a cadence task.",
+  },
+  follow_up_due: {
+    cue: "Immediate operator action",
+    move: "Prioritize the oldest overdue contacts first, then clear anything due today before opening new work.",
+  },
+  replied: {
+    cue: "Warmest conversations",
+    move: "Read for intent fast. Questions and positive responses should get manual handling before more outbound work.",
+  },
+  parked: {
+    cue: "Intentionally out of cycle",
+    move: "Keep this lane quiet. Only revisit if the reason for parking has changed or capacity improves.",
+  },
 };
 
 function escapeHtml(value) {
@@ -124,6 +148,16 @@ function truncateText(value, maxLength = 160) {
   const text = String(value || "").trim().replace(/\s+/g, " ");
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function rankCounts(values) {
+  return Object.entries(
+    values.reduce((acc, value) => {
+      if (!value) return acc;
+      acc[value] = (acc[value] || 0) + 1;
+      return acc;
+    }, {}),
+  ).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
 }
 
 function shellQuote(value) {
@@ -568,9 +602,17 @@ function renderStageDetail() {
   const stageContacts = state.data.contacts.filter((contact) => contact.funnelStage === state.selectedStage);
   const filteredContacts = getStageContacts();
   const visibleContacts = filteredContacts.slice(0, state.detailLimit);
+  const spotlightContacts = visibleContacts.slice(0, Math.min(3, visibleContacts.length));
+  const secondaryContacts = visibleContacts.slice(spotlightContacts.length);
   const overdueCount = filteredContacts.filter((contact) => typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0).length;
   const propertyManagerCount = filteredContacts.filter((contact) => contact.type === "pm").length;
   const influencerCount = filteredContacts.filter((contact) => contact.type === "influencer").length;
+  const topRegions = rankCounts(filteredContacts.map((contact) => contact.regionLabel)).slice(0, 2);
+  const topChannels = rankCounts(filteredContacts.map((contact) => contact.channelLabel)).slice(0, 2);
+  const playbook = STAGE_PLAYBOOK[state.selectedStage] || {
+    cue: "Stage overview",
+    move: "Inspect the contacts below and move the lane deliberately.",
+  };
 
   elements.detailStageLabel.textContent = STAGE_LABELS[state.selectedStage] || state.selectedStage;
   elements.detailStageMeta.textContent = `${visibleContacts.length} visible • ${filteredContacts.length} matching • ${stageContacts.length} in stage`;
@@ -588,12 +630,33 @@ function renderStageDetail() {
       .join("");
   }
 
+  if (elements.detailOverview) {
+    elements.detailOverview.innerHTML = `
+      <article class="detail-brief-card">
+        <span class="detail-brief-label">${escapeHtml(playbook.cue)}</span>
+        <strong>${escapeHtml(playbook.move)}</strong>
+      </article>
+      <div class="detail-mini-grid">
+        <article class="detail-mini-card">
+          <span>Top regions</span>
+          <strong>${escapeHtml(topRegions.map(([label]) => label).join(" • ") || "Mixed")}</strong>
+          <small>${escapeHtml(topRegions.map(([, count]) => `${count} contacts`).join(" • ") || "No region data")}</small>
+        </article>
+        <article class="detail-mini-card">
+          <span>Top channels</span>
+          <strong>${escapeHtml(topChannels.map(([label]) => label).join(" • ") || "Mixed")}</strong>
+          <small>${escapeHtml(topChannels.map(([, count]) => `${count} contacts`).join(" • ") || "No channel data")}</small>
+        </article>
+      </div>
+    `;
+  }
+
   if (!filteredContacts.length) {
     elements.contactList.innerHTML = emptyState("No contacts match this stage and filter.");
     return;
   }
 
-  elements.contactList.innerHTML = visibleContacts
+  const spotlightMarkup = spotlightContacts
     .map((contact) => {
       const chips = [
         contact.typeLabel,
@@ -610,7 +673,7 @@ function renderStageDetail() {
         contact.funnelStage === "follow_up_due" ? '<span class="contact-pill emphasis">Needs action</span>' : "";
       const lastTouch = contact.lastTouchDate ? `Last touch ${contact.lastTouchDate}` : "No outreach logged";
       return `
-        <article class="contact-row">
+        <article class="contact-row contact-row-spotlight">
           <div>
             <p class="contact-name">${escapeHtml(contact.name)}</p>
             <div class="contact-meta">
@@ -626,15 +689,59 @@ function renderStageDetail() {
         </article>
       `;
     })
-    .join("") + (
-      filteredContacts.length > visibleContacts.length
-        ? `
-          <button class="load-more-button" id="loadMoreContacts" type="button">
-            Show ${Math.min(12, filteredContacts.length - visibleContacts.length)} more contacts
-          </button>
-        `
-        : ""
-    );
+    .join("");
+
+  const compactMarkup = secondaryContacts.length
+    ? `
+      <div class="compact-list">
+        <div class="compact-list-top">
+          <strong>More in this lane</strong>
+          <span>${escapeHtml(secondaryContacts.length)} additional contacts in view</span>
+        </div>
+        ${secondaryContacts
+          .map((contact) => {
+            const days = contact.daysUntilNextAction;
+            const dueLabel =
+              typeof days === "number" && days < 0
+                ? `${Math.abs(days)}d overdue`
+                : contact.nextCadenceDueDate
+                  ? `Due ${formatShortDate(contact.nextCadenceDueDate)}`
+                  : contact.nextActionSummary;
+            return `
+              <article class="compact-contact-row">
+                <div class="compact-contact-copy">
+                  <strong>${escapeHtml(contact.name)}</strong>
+                  <small>${escapeHtml([contact.typeLabel, contact.regionLabel, contact.contactName].filter(Boolean).join(" • ") || "No extra detail")}</small>
+                </div>
+                <div class="compact-contact-side">
+                  <span class="status-tag ${typeof days === "number" && days < 0 ? "tone-failed" : "tone-pending_review"}">${escapeHtml(dueLabel)}</span>
+                  <div class="contact-actions">
+                    ${copyAction("Copy ID", contact.id)}
+                    ${copyAction("CRM", crmGetCommand(contact.id))}
+                  </div>
+                </div>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+    : "";
+
+  const loadMoreMarkup =
+    filteredContacts.length > visibleContacts.length
+      ? `
+        <button class="load-more-button" id="loadMoreContacts" type="button">
+          Show ${Math.min(12, filteredContacts.length - visibleContacts.length)} more contacts
+        </button>
+      `
+      : "";
+
+  elements.contactList.innerHTML = `
+    <div class="spotlight-stack">${spotlightMarkup}</div>
+    ${compactMarkup}
+    ${loadMoreMarkup}
+  `;
 
   bindCopyActions(elements.contactList);
   const loadMoreButton = document.getElementById("loadMoreContacts");
@@ -923,6 +1030,43 @@ function renderCalendarLegend() {
     .join("");
 }
 
+function renderCalendarOverview() {
+  if (!state.data || !elements.calendarOverview) return;
+  const days = state.data.calendar.days;
+  const today = days.find((day) => day.date === state.data.calendar.today);
+  const nextBusyDay = days.find((day) => day.items.length > 0 && day.date >= state.data.calendar.today);
+  const pendingDay = days.find((day) => day.items.some((item) => item.status === "pending_review" || item.status === "approved"));
+  const summaryCards = [
+    {
+      label: "Today",
+      title: today ? `${today.items.length} scheduled items` : "No day loaded",
+      note: today ? (today.items.length ? "Current operational load." : "Quiet day.") : "Missing today snapshot.",
+    },
+    {
+      label: "Next busy day",
+      title: nextBusyDay ? `${formatShortDate(nextBusyDay.date)} • ${nextBusyDay.items.length} items` : "No future activity",
+      note: nextBusyDay ? "Closest day with cadence activity." : "Calendar is quiet.",
+    },
+    {
+      label: "Pending review on calendar",
+      title: pendingDay ? `${formatShortDate(pendingDay.date)} has drafts or queued sends` : "No pending send dates",
+      note: pendingDay ? "Useful for checking readiness against schedule." : "Everything scheduled is already resolved.",
+    },
+  ];
+
+  elements.calendarOverview.innerHTML = summaryCards
+    .map(
+      (card) => `
+        <article class="calendar-summary-card">
+          <span>${escapeHtml(card.label)}</span>
+          <strong>${escapeHtml(card.title)}</strong>
+          <small>${escapeHtml(card.note)}</small>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function renderCalendarWeekdays(visibleDays) {
   if (state.calendarMode !== "month" && window.innerWidth < 760) {
     elements.calendarWeekdays.innerHTML = "";
@@ -1036,6 +1180,11 @@ function renderDayDetail() {
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
+  const kindCounts = day.items.reduce((acc, item) => {
+    const key = item.kind || "other";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
   elements.dayDetail.innerHTML = `
     <h3>${escapeHtml(formatCalendarDate(day.date))}</h3>
@@ -1044,6 +1193,18 @@ function renderDayDetail() {
       ${Object.entries(statusCounts)
         .slice(0, 3)
         .map(([status, count]) => `<span class="status-tag ${STATUS_TONES[status] || STATUS_TONES.not_drafted}">${escapeHtml(STATUS_LABELS[status] || status)} · ${escapeHtml(count)}</span>`)
+        .join("")}
+    </div>
+    <div class="day-detail-overview">
+      ${Object.entries(kindCounts)
+        .slice(0, 3)
+        .map(([kind, count]) => `
+          <article class="day-overview-card">
+            <span>${escapeHtml(KIND_LABELS[kind] || kind.toUpperCase())}</span>
+            <strong>${escapeHtml(count)}</strong>
+            <small>${escapeHtml(count === 1 ? "item in this cadence step" : "items in this cadence step")}</small>
+          </article>
+        `)
         .join("")}
     </div>
     <div class="day-detail-list">
@@ -1064,7 +1225,7 @@ function renderDayDetail() {
                 ${item.inferred ? '<span class="status-tag tone-not_drafted">Inferred</span>' : ""}
               </div>
               <h4>${escapeHtml(item.contactName || item.title)}</h4>
-              <p>${escapeHtml(truncateText(item.subtitle, 110))}</p>
+              <p>${escapeHtml(truncateText(item.subtitle, 88))}</p>
               ${links.length ? `<div class="detail-links">${links.join("")}</div>` : ""}
             </article>
           `;
@@ -1089,6 +1250,7 @@ function renderCalendar() {
   const visibleDays = getVisibleDays();
   renderCalendarControls();
   renderCalendarLegend();
+  renderCalendarOverview();
   renderCalendarWeekdays(visibleDays);
   renderCalendarGrid(visibleDays);
   renderDayDetail();
@@ -1189,6 +1351,12 @@ async function initialize() {
   elements.needsJimmy.innerHTML = emptyState("Loading operator flags...");
   elements.pendingBatches.innerHTML = emptyState("Loading approval data...");
   elements.dayDetail.innerHTML = emptyState("Loading calendar...");
+  if (elements.detailOverview) {
+    elements.detailOverview.innerHTML = emptyState("Loading stage summary...");
+  }
+  if (elements.calendarOverview) {
+    elements.calendarOverview.innerHTML = emptyState("Loading calendar summary...");
+  }
 
   if (elements.contactSearch) {
     elements.contactSearch.addEventListener("input", (event) => {
