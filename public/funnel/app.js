@@ -6,6 +6,7 @@ const state = {
   contactType: "all",
   contactSearch: "",
   detailLimit: 12,
+  dayDetailLimit: 8,
   calendarMode: window.innerWidth < 760 ? "week" : "month",
   selectedDay: null,
   refreshTimer: null,
@@ -17,6 +18,7 @@ const elements = {
   lastUpdated: document.getElementById("lastUpdated"),
   nextRefresh: document.getElementById("nextRefresh"),
   refreshButton: document.getElementById("refreshButton"),
+  heroBrief: document.getElementById("heroBrief"),
   headlineStats: document.getElementById("headlineStats"),
   approvalMetrics: document.getElementById("approvalMetrics"),
   pendingBatches: document.getElementById("pendingBatches"),
@@ -116,6 +118,12 @@ function formatCountdown(msRemaining) {
 
 function formatPercent(value) {
   return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function truncateText(value, maxLength = 160) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
 function shellQuote(value) {
@@ -350,6 +358,44 @@ function renderHeadlineStats() {
     .join("");
 }
 
+function renderHeroBrief() {
+  if (!state.data || !elements.heroBrief) return;
+  const summary = state.data.summary;
+  const metrics = state.data.metrics;
+  const cards = [
+    {
+      eyebrow: "Pressure point",
+      title: summary.overdueFollowUps ? `${summary.overdueFollowUps} follow-ups are already late` : "No overdue follow-ups right now",
+      note: summary.followUpsDueNow ? `${summary.followUpsDueNow} contacts need attention in the current cadence window.` : "The cadence queue is currently quiet.",
+      tone: "brief-alert",
+    },
+    {
+      eyebrow: "Send posture",
+      title: summary.approvedQueued ? `${summary.approvedQueued} sends are ready to go` : "Nothing is queued to send",
+      note: summary.sentToday ? `${summary.sentToday} sends already landed today.` : "No sends have landed yet today.",
+      tone: "brief-steady",
+    },
+    {
+      eyebrow: "Yield signal",
+      title: metrics.repliedCount ? `${metrics.repliedCount} replies from ${metrics.contactedCount} touched contacts` : "Still waiting on the first reply wave",
+      note: `${formatPercent(metrics.responseRate)} response rate • ${formatPercent(metrics.conversionRate)} conversion rate.`,
+      tone: "brief-calm",
+    },
+  ];
+
+  elements.heroBrief.innerHTML = cards
+    .map(
+      (card) => `
+        <article class="brief-card ${card.tone}">
+          <span class="brief-eyebrow">${escapeHtml(card.eyebrow)}</span>
+          <strong>${escapeHtml(card.title)}</strong>
+          <p>${escapeHtml(card.note)}</p>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function renderApprovalSection() {
   if (!state.data) return;
   const approval = state.data.approval;
@@ -423,11 +469,22 @@ function renderFunnel() {
     .map((entry) => {
       const activeClass = entry.key === state.selectedStage ? "active" : "";
       const share = `${Math.round(entry.share * 100)}% of pipeline`;
+      const note =
+        entry.key === "follow_up_due"
+          ? "Needs operator attention"
+          : entry.key === "new_lead"
+            ? "Top of funnel inventory"
+            : entry.key === "parked"
+              ? "Intentionally out of cycle"
+              : entry.key === "replied"
+                ? "Warmest conversations"
+                : "Touched, awaiting movement";
       return `
         <button class="stage-button ${activeClass}" type="button" data-stage="${escapeHtml(entry.key)}">
           <strong class="count">${escapeHtml(entry.count)}</strong>
           <span class="label">${escapeHtml(entry.label)}</span>
           <span class="share">${escapeHtml(share)}</span>
+          <small class="stage-note">${escapeHtml(note)}</small>
         </button>
       `;
     })
@@ -712,6 +769,7 @@ function renderRecentResponses() {
   }
 
   elements.recentResponses.innerHTML = items
+    .slice(0, 4)
     .map((item) => `
       <article class="stack-card">
         <div class="row-top">
@@ -721,7 +779,7 @@ function renderRecentResponses() {
           </div>
           <span class="status-tag tone-approved">${escapeHtml(item.responseType || item.status || "response")}</span>
         </div>
-        <p>${escapeHtml(item.summary || "No summary captured.")}</p>
+        <p>${escapeHtml(truncateText(item.summary || "No summary captured.", 180))}</p>
         <div class="contact-actions">
           ${copyAction("Copy ID", item.id)}
           ${copyAction("Copy crm get", crmGetCommand(item.id))}
@@ -777,6 +835,7 @@ function renderCalendarControls() {
   elements.calendarModeToggle.querySelectorAll("[data-calendar-mode]").forEach((button) => {
     button.addEventListener("click", () => {
       state.calendarMode = button.getAttribute("data-calendar-mode");
+      state.dayDetailLimit = 8;
       ensureSelectedDay();
       renderCalendar();
     });
@@ -861,6 +920,7 @@ function renderCalendarGrid(visibleDays) {
   elements.calendarGrid.querySelectorAll("[data-date]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedDay = button.getAttribute("data-date");
+      state.dayDetailLimit = 8;
       renderCalendar();
     });
   });
@@ -886,11 +946,24 @@ function renderDayDetail() {
     return;
   }
 
+  const visibleItems = day.items.slice(0, state.dayDetailLimit);
+  const statusCounts = day.items.reduce((acc, item) => {
+    const key = item.status || "not_drafted";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
   elements.dayDetail.innerHTML = `
     <h3>${escapeHtml(formatCalendarDate(day.date))}</h3>
     <p>${escapeHtml(day.items.length)} item${day.items.length === 1 ? "" : "s"} on this day.</p>
+    <div class="day-detail-highlights">
+      ${Object.entries(statusCounts)
+        .slice(0, 3)
+        .map(([status, count]) => `<span class="status-tag ${STATUS_TONES[status] || STATUS_TONES.not_drafted}">${escapeHtml(STATUS_LABELS[status] || status)} · ${escapeHtml(count)}</span>`)
+        .join("")}
+    </div>
     <div class="day-detail-list">
-      ${day.items
+      ${visibleItems
         .map((item) => {
           const links = [];
           if (item.email) {
@@ -907,14 +980,23 @@ function renderDayDetail() {
                 ${item.inferred ? '<span class="status-tag tone-not_drafted">Inferred</span>' : ""}
               </div>
               <h4>${escapeHtml(item.contactName || item.title)}</h4>
-              <p>${escapeHtml(item.subtitle)}</p>
+              <p>${escapeHtml(truncateText(item.subtitle, 110))}</p>
               ${links.length ? `<div class="detail-links">${links.join("")}</div>` : ""}
             </article>
           `;
         })
         .join("")}
+      ${day.items.length > visibleItems.length ? `<button class="load-more-button" id="loadMoreDayItems" type="button">Show ${Math.min(8, day.items.length - visibleItems.length)} more items</button>` : ""}
     </div>
   `;
+
+  const loadMoreDayItems = document.getElementById("loadMoreDayItems");
+  if (loadMoreDayItems) {
+    loadMoreDayItems.addEventListener("click", () => {
+      state.dayDetailLimit += 8;
+      renderDayDetail();
+    });
+  }
 }
 
 function renderCalendar() {
@@ -959,6 +1041,7 @@ function renderMeta() {
 
 function renderAll() {
   renderMeta();
+  renderHeroBrief();
   renderHeadlineStats();
   renderApprovalSection();
   renderFunnel();
