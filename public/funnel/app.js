@@ -14,12 +14,17 @@ const state = {
   refreshTimer: null,
   countdownTimer: null,
   nextRefreshAt: Date.now() + REFRESH_INTERVAL_MS,
+  hasHydrated: false,
+  refreshState: "idle",
 };
 
 const elements = {
+  toastStack: document.getElementById("toastStack"),
+  statusAnnouncer: document.getElementById("statusAnnouncer"),
   lastUpdated: document.getElementById("lastUpdated"),
   nextRefresh: document.getElementById("nextRefresh"),
   refreshButton: document.getElementById("refreshButton"),
+  heroPulse: document.getElementById("heroPulse"),
   heroBrief: document.getElementById("heroBrief"),
   headlineStats: document.getElementById("headlineStats"),
   viewToggle: document.getElementById("viewToggle"),
@@ -33,6 +38,7 @@ const elements = {
   contactSearch: document.getElementById("contactSearch"),
   detailHighlights: document.getElementById("detailHighlights"),
   detailOverview: document.getElementById("detailOverview"),
+  detailPanel: document.querySelector(".detail-panel"),
   contactList: document.getElementById("contactList"),
   workList: document.getElementById("workList"),
   performanceMetrics: document.getElementById("performanceMetrics"),
@@ -107,6 +113,59 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function delightAttr(index = 0, offset = 0) {
+  return `style="--stagger:${index + offset}"`;
+}
+
+function announceStatus(message, { tone = "default", toast = true } = {}) {
+  if (elements.statusAnnouncer) {
+    elements.statusAnnouncer.textContent = "";
+    window.setTimeout(() => {
+      elements.statusAnnouncer.textContent = message;
+    }, 20);
+  }
+
+  if (!toast || !elements.toastStack) return;
+
+  const toastElement = document.createElement("div");
+  toastElement.className = `toast toast-${tone}`;
+  toastElement.textContent = message;
+  elements.toastStack.appendChild(toastElement);
+
+  window.setTimeout(() => {
+    toastElement.classList.add("is-leaving");
+    window.setTimeout(() => toastElement.remove(), 260);
+  }, 2400);
+}
+
+function pulseElement(element) {
+  if (!element) return;
+  element.classList.remove("pulse-in");
+  void element.offsetWidth;
+  element.classList.add("pulse-in");
+}
+
+function setRefreshButtonState(mode = "idle") {
+  if (!elements.refreshButton) return;
+  state.refreshState = mode;
+  elements.refreshButton.dataset.state = mode;
+  elements.refreshButton.disabled = mode === "loading";
+
+  if (mode === "loading") {
+    elements.refreshButton.textContent = "Refreshing...";
+  } else if (mode === "success") {
+    elements.refreshButton.textContent = "Fresh snapshot";
+  } else if (mode === "error") {
+    elements.refreshButton.textContent = "Retry refresh";
+  } else {
+    elements.refreshButton.textContent = "Refresh now";
+  }
 }
 
 function formatDateTime(value) {
@@ -224,12 +283,15 @@ function bindCopyActions(root) {
   root.querySelectorAll("[data-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
       const originalHtml = button.innerHTML;
+      const label = button.textContent?.trim() || "Value";
       try {
         await copyText(button.getAttribute("data-copy") || "");
         button.textContent = "Copied";
+        announceStatus(`${label} copied`, { tone: "success" });
       } catch (error) {
         console.error(error);
         button.textContent = "Failed";
+        announceStatus(`Could not copy ${label.toLowerCase()}`, { tone: "error" });
       } finally {
         window.setTimeout(() => {
           button.innerHTML = originalHtml;
@@ -250,6 +312,8 @@ function bindStageJumpActions(root) {
       state.detailLimit = 12;
       renderFunnel();
       renderStageDetail();
+      announceStatus(`${STAGE_LABELS[stage] || stage} opened`, { tone: "info", toast: false });
+      pulseElement(elements.detailOverview);
       const detailHeading = document.getElementById("stage-detail-heading");
       detailHeading?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -257,7 +321,7 @@ function bindStageJumpActions(root) {
 }
 
 function emptyState(message) {
-  return `<div class="empty-state">${escapeHtml(message)}</div>`;
+  return `<div class="empty-state delight-reveal" ${delightAttr(0, 1)}>${escapeHtml(message)}</div>`;
 }
 
 function parseViewFromLocation() {
@@ -299,6 +363,7 @@ function renderViewToggle() {
       state.activeView = nextView;
       updateViewUrl();
       applyActiveView({ scroll: true });
+      announceStatus(`${labels[nextView]} in view`, { tone: "info", toast: false });
     });
   });
 }
@@ -310,6 +375,8 @@ function applyActiveView({ scroll = false } = {}) {
     section.hidden = !isVisible;
   });
   renderViewToggle();
+  renderHeroPulse();
+  pulseElement(elements.heroPulse?.firstElementChild || elements.heroPulse);
   if (scroll) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -461,8 +528,8 @@ function renderHeadlineStats() {
 
   elements.headlineStats.innerHTML = cards
     .map(
-      (card) => `
-        <article class="stat-card">
+      (card, index) => `
+        <article class="stat-card delight-reveal" ${delightAttr(index, 4)}>
           <strong>${escapeHtml(card.value)}</strong>
           <span>${escapeHtml(card.label)}</span>
           <small>${escapeHtml(card.note)}</small>
@@ -470,6 +537,111 @@ function renderHeadlineStats() {
       `,
     )
     .join("");
+}
+
+function renderHeroPulse() {
+  if (!state.data || !elements.heroPulse) return;
+
+  const { summary, metrics, runway, calendar, warnings, sources } = state.data;
+  const nextBusyDay = calendar.days.find((day) => day.items.length > 0 && day.date >= calendar.today);
+  const pendingDay = calendar.days.find((day) => day.items.some((item) => item.status === "pending_review" || item.status === "approved"));
+  const sourceIssues = sources.filter((source) => !source.ok).length;
+  const viewLabels = {
+    overview: "Overview",
+    work: "Work queue",
+    calendar: "Calendar",
+    system: "System",
+  };
+
+  let label = "Overview focus";
+  let title = "Cadence is settled enough to look for the next best move.";
+  let tone = "calm";
+  let tags = [
+    `${pluralize(summary.followUpsDueNow, "follow-up")} due`,
+    `${pluralize(summary.approvedQueued, "send")} queued`,
+    `${runway.runwayDays === null ? "Runway paused" : `${runway.runwayDays} day runway`}`,
+  ];
+
+  if (state.activeView === "work") {
+    label = "Work queue focus";
+    if (summary.followUpsDueNow) {
+      title = `${pluralize(summary.followUpsDueNow, "contact")} need action now. Start with the oldest overdue follow-ups.`;
+      tone = "alert";
+    } else {
+      title = "The queue is clear enough to open fresh outreach or tighten review decisions.";
+      tone = "calm";
+    }
+    tags = [
+      `${pluralize(summary.overdueFollowUps, "overdue item", "overdue items")}`,
+      `${pluralize(summary.approvedQueued, "ready send", "ready sends")}`,
+      `${pluralize(metrics.repliedCount, "reply")} waiting`,
+    ];
+  } else if (state.activeView === "calendar") {
+    label = "Calendar focus";
+    if (nextBusyDay) {
+      title = `${formatShortDate(nextBusyDay.date)} is the next busy day with ${pluralize(nextBusyDay.items.length, "scheduled item")}.`;
+      tone = nextBusyDay.date === calendar.today ? "warm" : "steady";
+    } else {
+      title = "The calendar is quiet. There is room to stage cleaner send windows.";
+      tone = "calm";
+    }
+    tags = [
+      pendingDay ? `${formatShortDate(pendingDay.date)} has pending work` : "No pending review dates",
+      `${pluralize(calendar.days.filter((day) => day.items.length > 0).length, "active day")} visible`,
+      `${state.calendarMode === "month" ? "Month lens" : "Week lens"}`,
+    ];
+  } else if (state.activeView === "system") {
+    label = "System focus";
+    if (warnings.length || sourceIssues) {
+      title = `${pluralize(warnings.length || sourceIssues, "signal")} need checking before you trust the whole snapshot.`;
+      tone = "alert";
+    } else {
+      title = "All tracked sources are checking in cleanly right now.";
+      tone = "calm";
+    }
+    tags = [
+      `${pluralize(sourceIssues, "source issue")}`,
+      warnings.length ? `${pluralize(warnings.length, "warning")}` : "No warnings",
+      `${pluralize(state.data.sources.length, "tracked source")}`,
+    ];
+  } else if (summary.overdueFollowUps) {
+    title = `${pluralize(summary.overdueFollowUps, "follow-up")} already slipped past due. Clear the oldest cadence work first.`;
+    tone = "alert";
+    tags = [
+      `${pluralize(summary.followUpsDueNow, "contact")} due now`,
+      `${pluralize(summary.approvedQueued, "send")} queued`,
+      `${formatPercent(metrics.responseRate)} reply rate`,
+    ];
+  } else if (summary.approvedQueued) {
+    title = `${pluralize(summary.approvedQueued, "send")} are ready to move. Decision work can become outbound today.`;
+    tone = "steady";
+    tags = [
+      `${pluralize(summary.sentToday, "send")} already sent`,
+      `${pluralize(summary.followUpsDueNow, "follow-up")} still due`,
+      `${runway.runwayDays === null ? "Runway paused" : `${runway.runwayDays} day runway`}`,
+    ];
+  } else if (metrics.repliedCount) {
+    title = `${pluralize(metrics.repliedCount, "reply")} turned the pipeline warm. Human judgment has the highest leverage now.`;
+    tone = "warm";
+    tags = [
+      `${pluralize(metrics.contactedCount, "contact")} touched`,
+      `${formatPercent(metrics.responseRate)} response rate`,
+      `${formatPercent(metrics.conversionRate)} conversion rate`,
+    ];
+  }
+
+  elements.heroPulse.innerHTML = `
+    <article class="hero-pulse-card hero-pulse-${tone} delight-reveal" ${delightAttr(0)}>
+      <div class="hero-pulse-top">
+        <span class="hero-pulse-label">${escapeHtml(label)}</span>
+        <span class="hero-pulse-view">${escapeHtml(viewLabels[state.activeView] || state.activeView)}</span>
+      </div>
+      <strong>${escapeHtml(title)}</strong>
+      <div class="hero-pulse-tags">
+        ${tags.map((tag) => `<span class="hero-pulse-tag">${escapeHtml(tag)}</span>`).join("")}
+      </div>
+    </article>
+  `;
 }
 
 function renderHeroBrief() {
@@ -499,8 +671,8 @@ function renderHeroBrief() {
 
   elements.heroBrief.innerHTML = cards
     .map(
-      (card) => `
-        <article class="brief-card ${card.tone}">
+      (card, index) => `
+        <article class="brief-card ${card.tone} delight-reveal" ${delightAttr(index, 1)}>
           <span class="brief-eyebrow">${escapeHtml(card.eyebrow)}</span>
           <strong>${escapeHtml(card.title)}</strong>
           <p>${escapeHtml(card.note)}</p>
@@ -552,7 +724,7 @@ function renderApprovalSection() {
         ? `${approval.sentToday} sends already landed today.`
         : "Send queue is quiet.";
     elements.approvalSummary.innerHTML = `
-      <article class="approval-brief-card">
+      <article class="approval-brief-card delight-reveal" ${delightAttr(0, 1)}>
         <span class="approval-brief-label">Decision posture</span>
         <strong>${escapeHtml(summaryLine)}</strong>
         <small>${escapeHtml(queueLine)}</small>
@@ -562,8 +734,8 @@ function renderApprovalSection() {
 
   elements.approvalMetrics.innerHTML = metrics
     .map(
-      (metric) => `
-        <article class="metric-chip status-${escapeHtml(metric.tone)}">
+      (metric, index) => `
+        <article class="metric-chip status-${escapeHtml(metric.tone)} delight-reveal" ${delightAttr(index, 2)}>
           <strong>${escapeHtml(metric.value)}</strong>
           <span>${escapeHtml(metric.label)}</span>
           <small>${escapeHtml(metric.note)}</small>
@@ -579,8 +751,8 @@ function renderApprovalSection() {
 
   elements.pendingBatches.innerHTML = approval.pendingItems
     .map(
-      (item) => `
-        <a class="batch-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">
+      (item, index) => `
+        <a class="batch-link delight-reveal" ${delightAttr(index, 6)} href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">
           <div>
             <strong>${escapeHtml(item.title)}</strong>
             <small>
@@ -601,7 +773,7 @@ function renderFunnel() {
   ensureSelectedStage();
   const maxCount = Math.max(...state.data.pipeline.map((entry) => entry.count), 1);
   elements.funnelTrack.innerHTML = state.data.pipeline
-    .map((entry) => {
+    .map((entry, index) => {
       const activeClass = entry.key === state.selectedStage ? "active" : "";
       const stageContacts = state.data.contacts.filter((contact) => contact.funnelStage === entry.key);
       const pmCount = stageContacts.filter((contact) => contact.type === "pm").length;
@@ -640,7 +812,7 @@ function renderFunnel() {
                   };
       const meterWidth = Math.max(14, Math.round((entry.count / maxCount) * 100));
       return `
-        <button class="stage-button ${activeClass} ${config.tone}" type="button" data-stage="${escapeHtml(entry.key)}">
+        <button class="stage-button ${activeClass} ${config.tone} delight-reveal" ${delightAttr(index, 3)} type="button" data-stage="${escapeHtml(entry.key)}" aria-pressed="${entry.key === state.selectedStage ? "true" : "false"}">
           <div class="stage-topline">
             <span class="stage-kicker">${escapeHtml(config.cue)}</span>
             <span class="stage-share">${escapeHtml(share)}</span>
@@ -675,6 +847,8 @@ function renderFunnel() {
       state.detailLimit = 12;
       renderStageDetail();
       renderFunnel();
+      announceStatus(`${STAGE_LABELS[state.selectedStage] || state.selectedStage} selected`, { tone: "info", toast: false });
+      pulseElement(elements.detailPanel);
     });
   });
 }
@@ -717,6 +891,7 @@ function renderContactFilters(stageContacts) {
       state.contactType = button.getAttribute("data-contact-type");
       state.detailLimit = 12;
       renderStageDetail();
+      pulseElement(elements.contactList);
     });
   });
 }
@@ -756,17 +931,17 @@ function renderStageDetail() {
 
   if (elements.detailOverview) {
     elements.detailOverview.innerHTML = `
-      <article class="detail-brief-card">
+      <article class="detail-brief-card delight-reveal" ${delightAttr(0, 2)}>
         <span class="detail-brief-label">${escapeHtml(playbook.cue)}</span>
         <strong>${escapeHtml(playbook.move)}</strong>
       </article>
       <div class="detail-mini-grid">
-        <article class="detail-mini-card">
+        <article class="detail-mini-card delight-reveal" ${delightAttr(1, 2)}>
           <span>Top regions</span>
           <strong>${escapeHtml(topRegions.map(([label]) => label).join(" • ") || "Mixed")}</strong>
           <small>${escapeHtml(topRegions.map(([, count]) => `${count} contacts`).join(" • ") || "No region data")}</small>
         </article>
-        <article class="detail-mini-card">
+        <article class="detail-mini-card delight-reveal" ${delightAttr(2, 2)}>
           <span>Top channels</span>
           <strong>${escapeHtml(topChannels.map(([label]) => label).join(" • ") || "Mixed")}</strong>
           <small>${escapeHtml(topChannels.map(([, count]) => `${count} contacts`).join(" • ") || "No channel data")}</small>
@@ -781,7 +956,7 @@ function renderStageDetail() {
   }
 
   const spotlightMarkup = spotlightContacts
-    .map((contact) => {
+    .map((contact, index) => {
       const chips = [
         contact.typeLabel,
         contact.regionLabel,
@@ -797,7 +972,7 @@ function renderStageDetail() {
         contact.funnelStage === "follow_up_due" ? '<span class="contact-pill emphasis">Needs action</span>' : "";
       const lastTouch = contact.lastTouchDate ? `Last touch ${contact.lastTouchDate}` : "No outreach logged";
       return `
-        <article class="contact-row contact-row-spotlight">
+        <article class="contact-row contact-row-spotlight delight-reveal" ${delightAttr(index, 3)}>
           <div>
             <p class="contact-name">${escapeHtml(contact.name)}</p>
             <div class="contact-meta">
@@ -823,7 +998,7 @@ function renderStageDetail() {
           <span>${escapeHtml(secondaryContacts.length)} additional contacts in view</span>
         </div>
         ${secondaryContacts
-          .map((contact) => {
+          .map((contact, index) => {
             const days = contact.daysUntilNextAction;
             const dueLabel =
               typeof days === "number" && days < 0
@@ -832,7 +1007,7 @@ function renderStageDetail() {
                   ? `Due ${formatShortDate(contact.nextCadenceDueDate)}`
                   : contact.nextActionSummary;
             return `
-              <article class="compact-contact-row">
+              <article class="compact-contact-row delight-reveal" ${delightAttr(index, 6)}>
                 <div class="compact-contact-copy">
                   <strong>${escapeHtml(contact.name)}</strong>
                   <small>${escapeHtml([contact.typeLabel, contact.regionLabel, contact.contactName].filter(Boolean).join(" • ") || "No extra detail")}</small>
@@ -909,7 +1084,7 @@ function renderWorkList() {
       const toneClass = typeof days === "number" && days < 0 ? "tone-failed" : typeof days === "number" && days <= 1 ? "tone-approved" : "tone-pending_review";
       const leadBadge = typeof contact.leadScore === "number" ? `<span class="contact-pill emphasis">Lead ${escapeHtml(contact.leadScore)}</span>` : "";
       return `
-        <article class="stack-card task-card ${index === 0 ? "task-card-priority" : ""}">
+        <article class="stack-card task-card ${index === 0 ? "task-card-priority" : ""} delight-reveal" ${delightAttr(index, 3)}>
           <div class="row-top">
             <div>
               <strong>${escapeHtml(contact.name)}</strong>
@@ -967,14 +1142,14 @@ function renderPerformanceMetrics() {
     : "No responses yet; the pipeline is still in outbound mode.";
 
   elements.performanceMetrics.innerHTML = `
-    <div class="performance-banner">
+    <div class="performance-banner delight-reveal" ${delightAttr(0, 2)}>
       <strong>${escapeHtml(narrative)}</strong>
       <span>${escapeHtml(`${formatPercent(metrics.responseRate)} response rate and ${formatPercent(metrics.conversionRate)} conversion rate so far.`)}</span>
     </div>
     ${cards
       .map(
-        (card) => `
-        <article class="mini-stat">
+        (card, index) => `
+        <article class="mini-stat delight-reveal" ${delightAttr(index, 3)}>
           <strong>${escapeHtml(card.value)}</strong>
           <span>${escapeHtml(card.label)}</span>
           <small>${escapeHtml(card.note)}</small>
@@ -997,7 +1172,7 @@ function renderRunwayCard() {
         : "Runway date unavailable.";
 
   elements.runwayCard.innerHTML = `
-    <article class="runway-card ${toneClass}">
+    <article class="runway-card ${toneClass} delight-reveal" ${delightAttr(0, 2)}>
       <div class="row-top">
         <div>
           <p class="runway-label">Pipeline runway</p>
@@ -1026,7 +1201,7 @@ function renderOperatorShortcuts() {
   };
 
   elements.operatorShortcuts.innerHTML = Object.entries(examples)
-    .map(([key, command]) => {
+    .map(([key, command], index) => {
       const label =
         key === "backendStatus"
           ? "Backend status"
@@ -1036,7 +1211,7 @@ function renderOperatorShortcuts() {
               ? "Pipeline stats"
               : "Reconcile";
       return `
-        <button class="shortcut-button" type="button" data-copy="${escapeHtml(command)}">
+        <button class="shortcut-button delight-reveal" ${delightAttr(index, 2)} type="button" data-copy="${escapeHtml(command)}">
           <span>${escapeHtml(label)}</span>
           <small>${escapeHtml(shortcutDetails[key] || "Run a CRM helper command.")}</small>
         </button>
@@ -1057,8 +1232,8 @@ function renderRecentResponses() {
 
   elements.recentResponses.innerHTML = items
     .slice(0, 4)
-    .map((item) => `
-      <article class="stack-card">
+    .map((item, index) => `
+      <article class="stack-card delight-reveal" ${delightAttr(index, 2)}>
         <div class="row-top">
           <div>
             <strong>${escapeHtml(item.name)}</strong>
@@ -1090,8 +1265,8 @@ function renderNeedsJimmy() {
 
   elements.needsJimmy.innerHTML = items
     .slice(0, 5)
-    .map((item) => `
-      <article class="stack-card">
+    .map((item, index) => `
+      <article class="stack-card delight-reveal" ${delightAttr(index, 2)}>
         <div class="row-top">
           <div>
             <strong>${escapeHtml(item.name)}</strong>
@@ -1130,6 +1305,8 @@ function renderCalendarControls() {
       state.dayDetailLimit = 8;
       ensureSelectedDay();
       renderCalendar();
+      announceStatus(`${state.calendarMode === "week" ? "Week" : "Month"} calendar view`, { tone: "info", toast: false });
+      pulseElement(elements.calendarGrid);
     });
   });
 }
@@ -1180,8 +1357,8 @@ function renderCalendarOverview() {
 
   elements.calendarOverview.innerHTML = summaryCards
     .map(
-      (card) => `
-        <article class="calendar-summary-card">
+      (card, index) => `
+        <article class="calendar-summary-card delight-reveal" ${delightAttr(index, 1)}>
           <span>${escapeHtml(card.label)}</span>
           <strong>${escapeHtml(card.title)}</strong>
           <small>${escapeHtml(card.note)}</small>
@@ -1211,7 +1388,7 @@ function renderCalendarGrid(visibleDays) {
   }
 
   elements.calendarGrid.innerHTML = visibleDays
-    .map((day) => {
+    .map((day, index) => {
       const activeKinds = ["d0", "d3", "d7"].filter((kind) => {
         const bucket = day.totalsByKind[kind];
         return bucket && bucket.total > 0;
@@ -1253,9 +1430,10 @@ function renderCalendarGrid(visibleDays) {
 
       return `
         <button
-          class="calendar-day ${day.date === state.selectedDay ? "active" : ""} ${day.isCurrentMonth ? "" : "muted"} ${day.isToday ? "today" : ""}"
+          class="calendar-day delight-reveal ${day.date === state.selectedDay ? "active" : ""} ${day.isCurrentMonth ? "" : "muted"} ${day.isToday ? "today" : ""}"
           type="button"
           data-date="${escapeHtml(day.date)}"
+          ${delightAttr(index, 1)}
         >
           <div class="day-header">
             <span>${escapeHtml(day.weekdayShort)}</span>
@@ -1274,6 +1452,7 @@ function renderCalendarGrid(visibleDays) {
       state.selectedDay = button.getAttribute("data-date");
       state.dayDetailLimit = 8;
       renderCalendar();
+      pulseElement(elements.dayDetail);
     });
   });
 }
@@ -1311,19 +1490,19 @@ function renderDayDetail() {
   }, {});
 
   elements.dayDetail.innerHTML = `
-    <h3>${escapeHtml(formatCalendarDate(day.date))}</h3>
-    <p>${escapeHtml(day.items.length)} item${day.items.length === 1 ? "" : "s"} on this day.</p>
+    <h3 class="delight-reveal" ${delightAttr(0, 1)}>${escapeHtml(formatCalendarDate(day.date))}</h3>
+    <p class="delight-reveal" ${delightAttr(1, 1)}>${escapeHtml(day.items.length)} item${day.items.length === 1 ? "" : "s"} on this day.</p>
     <div class="day-detail-highlights">
       ${Object.entries(statusCounts)
         .slice(0, 3)
-        .map(([status, count]) => `<span class="status-tag ${STATUS_TONES[status] || STATUS_TONES.not_drafted}">${escapeHtml(STATUS_LABELS[status] || status)} · ${escapeHtml(count)}</span>`)
+        .map(([status, count], index) => `<span class="status-tag delight-reveal ${STATUS_TONES[status] || STATUS_TONES.not_drafted}" ${delightAttr(index, 2)}>${escapeHtml(STATUS_LABELS[status] || status)} · ${escapeHtml(count)}</span>`)
         .join("")}
     </div>
     <div class="day-detail-overview">
       ${Object.entries(kindCounts)
         .slice(0, 3)
-        .map(([kind, count]) => `
-          <article class="day-overview-card">
+        .map(([kind, count], index) => `
+          <article class="day-overview-card delight-reveal" ${delightAttr(index, 3)}>
             <span>${escapeHtml(KIND_LABELS[kind] || kind.toUpperCase())}</span>
             <strong>${escapeHtml(count)}</strong>
             <small>${escapeHtml(count === 1 ? "item in this cadence step" : "items in this cadence step")}</small>
@@ -1333,7 +1512,7 @@ function renderDayDetail() {
     </div>
     <div class="day-detail-list">
       ${visibleItems
-        .map((item) => {
+        .map((item, index) => {
           const links = [];
           if (item.email) {
             links.push(`<a href="mailto:${escapeHtml(item.email)}">Email</a>`);
@@ -1343,7 +1522,7 @@ function renderDayDetail() {
           }
 
           return `
-            <article class="day-detail-item">
+            <article class="day-detail-item delight-reveal" ${delightAttr(index, 4)}>
               <div class="row-top">
                 <span class="status-tag ${STATUS_TONES[item.status]}">${escapeHtml(KIND_LABELS[item.kind])} • ${escapeHtml(STATUS_LABELS[item.status])}</span>
                 ${item.inferred ? '<span class="status-tag tone-not_drafted">Inferred</span>' : ""}
@@ -1384,8 +1563,8 @@ function renderSourceStatus() {
   if (!state.data) return;
   elements.sourceStatus.innerHTML = state.data.sources
     .map(
-      (source) => `
-        <article class="source-card ${source.ok ? "ok" : "error"}">
+      (source, index) => `
+        <article class="source-card ${source.ok ? "ok" : "error"} delight-reveal" ${delightAttr(index, 1)}>
           <strong>${escapeHtml(source.label)}</strong>
           <small>${escapeHtml(source.detail)}</small>
         </article>
@@ -1399,7 +1578,7 @@ function renderSourceStatus() {
   }
 
   elements.warningList.innerHTML = state.data.warnings
-    .map((warning) => `<div class="warning-item">${escapeHtml(warning)}</div>`)
+    .map((warning, index) => `<div class="warning-item delight-reveal" ${delightAttr(index, 1)}>${escapeHtml(warning)}</div>`)
     .join("");
 }
 
@@ -1412,6 +1591,7 @@ function renderMeta() {
 function renderAll() {
   renderViewToggle();
   renderMeta();
+  renderHeroPulse();
   renderHeroBrief();
   renderHeadlineStats();
   renderApprovalSection();
@@ -1426,6 +1606,13 @@ function renderAll() {
   renderCalendar();
   renderSourceStatus();
   applyActiveView();
+
+  if (!state.hasHydrated) {
+    state.hasHydrated = true;
+    window.requestAnimationFrame(() => {
+      document.body.classList.add("page-ready");
+    });
+  }
 }
 
 async function fetchDashboard({ fresh = false } = {}) {
@@ -1444,20 +1631,55 @@ async function fetchDashboard({ fresh = false } = {}) {
   renderAll();
 }
 
+async function performRefresh({ fresh = true, source = "manual" } = {}) {
+  const isManual = source === "manual";
+
+  if (isManual) {
+    setRefreshButtonState("loading");
+  }
+
+  try {
+    await fetchDashboard({ fresh });
+    pulseElement(elements.heroPulse?.firstElementChild || elements.heroPulse);
+    pulseElement(elements.headlineStats);
+
+    if (isManual) {
+      setRefreshButtonState("success");
+      announceStatus("Fresh funnel snapshot loaded", { tone: "success" });
+    } else {
+      announceStatus("Funnel snapshot auto-refreshed", { tone: "info", toast: false });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    elements.warningList.innerHTML = `<div class="warning-item">Refresh failed: ${escapeHtml(message)}</div>`;
+
+    if (isManual) {
+      setRefreshButtonState("error");
+      announceStatus(`Refresh failed: ${message}`, { tone: "error" });
+    } else {
+      announceStatus("Background refresh failed", { tone: "error", toast: false });
+    }
+  } finally {
+    state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
+    renderMeta();
+
+    if (isManual) {
+      window.setTimeout(() => {
+        if (state.refreshState !== "loading") {
+          setRefreshButtonState("idle");
+        }
+      }, 1400);
+    }
+  }
+}
+
 function armAutoRefresh() {
   clearInterval(state.refreshTimer);
   clearInterval(state.countdownTimer);
 
   state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
   state.refreshTimer = setInterval(async () => {
-    try {
-      await fetchDashboard({ fresh: true });
-    } catch (error) {
-      console.error(error);
-    } finally {
-      state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
-      renderMeta();
-    }
+    await performRefresh({ fresh: true, source: "auto" });
   }, REFRESH_INTERVAL_MS);
 
   state.countdownTimer = setInterval(() => {
@@ -1467,6 +1689,7 @@ function armAutoRefresh() {
 
 async function initialize() {
   state.activeView = parseViewFromLocation();
+  setRefreshButtonState("idle");
   renderCalendarLegend();
   renderCalendarControls();
   renderViewToggle();
@@ -1496,6 +1719,7 @@ async function initialize() {
 
   try {
     await fetchDashboard();
+    announceStatus("Funnel dashboard ready", { tone: "success", toast: false });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     elements.warningList.innerHTML = `<div class="warning-item">Unable to load the dashboard: ${escapeHtml(message)}</div>`;
@@ -1505,15 +1729,7 @@ async function initialize() {
 }
 
 elements.refreshButton.addEventListener("click", async () => {
-  try {
-    await fetchDashboard({ fresh: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    elements.warningList.innerHTML = `<div class="warning-item">Refresh failed: ${escapeHtml(message)}</div>`;
-  } finally {
-    state.nextRefreshAt = Date.now() + REFRESH_INTERVAL_MS;
-    renderMeta();
-  }
+  await performRefresh({ fresh: true, source: "manual" });
 });
 
 window.addEventListener("popstate", () => {

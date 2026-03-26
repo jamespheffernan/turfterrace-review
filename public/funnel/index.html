@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#e6ddd1" />
-    <title>KitchenLux Funnel Dashboard</title>
+    <title>Funnel Dashboard — Turf Review</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,29 +16,31 @@
     <script defer src="/funnel/app.js"></script>
   </head>
   <body>
+    <div class="toast-stack" id="toastStack" aria-hidden="true"></div>
+    <div class="sr-only" id="statusAnnouncer" aria-live="polite" aria-atomic="true"></div>
     <div class="page-shell">
       <header class="hero panel">
-        <div class="hero-copy">
-          <p class="eyebrow">KitchenLux outreach command</p>
-          <h1>Pipeline pressure, decisions, and cadence windows in one screen.</h1>
-          <p class="lede">
-            Built for a quick operational read: what is new, what is due, what is queued to send, and what
-            still needs a push through Turf Review.
-          </p>
+        <div class="hero-top">
+          <div class="hero-copy">
+            <p class="eyebrow">Turf Review</p>
+            <h1>Funnel dashboard</h1>
+            <p class="lede">Pipeline status, follow-ups, and send readiness in one place.</p>
+          </div>
+
+          <div class="hero-controls">
+            <div class="meta-chip">
+              <span class="meta-label">Last refresh</span>
+              <strong id="lastUpdated">Loading...</strong>
+            </div>
+            <div class="meta-chip">
+              <span class="meta-label">Next auto-refresh</span>
+              <strong id="nextRefresh">5:00</strong>
+            </div>
+            <button class="refresh-button" id="refreshButton" type="button">Refresh now</button>
+          </div>
         </div>
 
-        <div class="hero-controls">
-          <div class="meta-chip">
-            <span class="meta-label">Last refresh</span>
-            <strong id="lastUpdated">Loading...</strong>
-          </div>
-          <div class="meta-chip">
-            <span class="meta-label">Next auto-refresh</span>
-            <strong id="nextRefresh">5:00</strong>
-          </div>
-          <button class="refresh-button" id="refreshButton" type="button">Refresh now</button>
-        </div>
-
+        <div class="hero-pulse" id="heroPulse"></div>
         <div class="hero-brief" id="heroBrief"></div>
         <div class="headline-stats" id="headlineStats"></div>
       </header>
