@@ -14,8 +14,8 @@ const {
 test('category-derived actions are stable', () => {
   assert.deepEqual(getCanonicalActions('outreach'), ['Send', 'Edit', 'Kill']);
   assert.deepEqual(getCanonicalActions('kitchenlux'), ['Execute', 'Inbox', 'Rework', 'Park', 'Kill']);
-  assert.deepEqual(getCanonicalActions('general'), ['Noted', 'Execute', 'Inbox', 'Rework']);
-  assert.deepEqual(getCanonicalActions('admin'), ['Noted', 'Execute', 'Inbox', 'Rework']);
+  assert.deepEqual(getCanonicalActions('general'), ['Noted', 'Execute', 'Inbox', 'Rework', 'Kill']);
+  assert.deepEqual(getCanonicalActions('admin'), ['Noted', 'Execute', 'Inbox', 'Rework', 'Kill']);
 });
 
 test('canonical routing wins when schema version is current', () => {

@@ -14,8 +14,8 @@ Review queue and decision surface for Turf Terrace workstreams.
 
 - `outreach` → `Send`, `Edit`, `Kill`
 - `kitchenlux` → `Execute`, `Inbox`, `Rework`, `Park`, `Kill`
-- `general` → `Noted`, `Execute`, `Inbox`, `Rework`
-- `admin` → `Noted`, `Execute`, `Inbox`, `Rework`
+- `general` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
+- `admin` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
 
 ## Important Paths
 

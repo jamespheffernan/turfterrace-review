@@ -12,8 +12,8 @@ This file is now a durable architecture snapshot, not an open build brief.
 
 - `outreach` → `Send`, `Edit`, `Kill`
 - `kitchenlux` → `Execute`, `Inbox`, `Rework`, `Park`, `Kill`
-- `general` → `Noted`, `Execute`, `Inbox`, `Rework`
-- `admin` → `Noted`, `Execute`, `Inbox`, `Rework`
+- `general` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
+- `admin` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
 
 ## Session Model
 
