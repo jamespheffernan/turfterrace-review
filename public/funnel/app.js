@@ -520,26 +520,71 @@ function renderApprovalSection() {
 function renderFunnel() {
   if (!state.data) return;
   ensureSelectedStage();
+  const maxCount = Math.max(...state.data.pipeline.map((entry) => entry.count), 1);
   elements.funnelTrack.innerHTML = state.data.pipeline
     .map((entry) => {
       const activeClass = entry.key === state.selectedStage ? "active" : "";
+      const stageContacts = state.data.contacts.filter((contact) => contact.funnelStage === entry.key);
+      const pmCount = stageContacts.filter((contact) => contact.type === "pm").length;
+      const influencerCount = stageContacts.filter((contact) => contact.type === "influencer").length;
+      const overdueCount = stageContacts.filter((contact) => typeof contact.daysUntilNextAction === "number" && contact.daysUntilNextAction < 0).length;
       const share = `${Math.round(entry.share * 100)}% of pipeline`;
-      const note =
+      const config =
         entry.key === "follow_up_due"
-          ? "Needs operator attention"
+          ? {
+              note: "Needs operator attention",
+              cue: overdueCount ? `${overdueCount} already late` : "Cadence attention lane",
+              tone: "stage-urgent",
+            }
           : entry.key === "new_lead"
-            ? "Top of funnel inventory"
+            ? {
+                note: "Top of funnel inventory",
+                cue: pmCount ? `${pmCount} PMs available` : "Fresh inventory",
+                tone: "stage-fresh",
+              }
             : entry.key === "parked"
-              ? "Intentionally out of cycle"
+              ? {
+                  note: "Intentionally out of cycle",
+                  cue: "Held back on purpose",
+                  tone: "stage-muted",
+                }
               : entry.key === "replied"
-                ? "Warmest conversations"
-                : "Touched, awaiting movement";
+                ? {
+                    note: "Warmest conversations",
+                    cue: influencerCount ? `${influencerCount} influencer replies` : "Ready for human judgment",
+                    tone: "stage-warm",
+                  }
+                : {
+                    note: "Touched, awaiting movement",
+                    cue: "Waiting on first signal",
+                    tone: "stage-cool",
+                  };
+      const meterWidth = Math.max(14, Math.round((entry.count / maxCount) * 100));
       return `
-        <button class="stage-button ${activeClass}" type="button" data-stage="${escapeHtml(entry.key)}">
-          <strong class="count">${escapeHtml(entry.count)}</strong>
-          <span class="label">${escapeHtml(entry.label)}</span>
-          <span class="share">${escapeHtml(share)}</span>
-          <small class="stage-note">${escapeHtml(note)}</small>
+        <button class="stage-button ${activeClass} ${config.tone}" type="button" data-stage="${escapeHtml(entry.key)}">
+          <div class="stage-topline">
+            <span class="stage-kicker">${escapeHtml(config.cue)}</span>
+            <span class="stage-share">${escapeHtml(share)}</span>
+          </div>
+          <div class="stage-count-row">
+            <strong class="count">${escapeHtml(entry.count)}</strong>
+            <span class="stage-label-shell">
+              <span class="label">${escapeHtml(entry.label)}</span>
+              <small class="stage-note">${escapeHtml(config.note)}</small>
+            </span>
+          </div>
+          <div class="stage-meter" aria-hidden="true">
+            <span style="width:${meterWidth}%"></span>
+          </div>
+          <div class="stage-breakdown">
+            <span class="stage-break-chip">${escapeHtml(pmCount)} PM</span>
+            <span class="stage-break-chip">${escapeHtml(influencerCount)} INF</span>
+            ${
+              entry.key === "follow_up_due"
+                ? `<span class="stage-break-chip stage-break-chip-alert">${escapeHtml(overdueCount)} overdue</span>`
+                : `<span class="stage-break-chip">${escapeHtml(stageContacts.length ? "active" : "quiet")}</span>`
+            }
+          </div>
         </button>
       `;
     })
