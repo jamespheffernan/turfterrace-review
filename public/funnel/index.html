@@ -68,7 +68,17 @@
         <div class="pending-batches" id="pendingBatches"></div>
       </section>
 
-      <section class="pipeline-layout" data-view="overview work">
+      <section class="panel overview-funnel-panel" aria-labelledby="overview-pipeline-heading" data-view="overview">
+        <div class="section-top">
+          <div>
+            <p class="section-kicker">Pipeline snapshot</p>
+            <h2 id="overview-pipeline-heading">Where momentum is sitting right now.</h2>
+          </div>
+        </div>
+        <div class="overview-funnel-track" id="overviewFunnelTrack"></div>
+      </section>
+
+      <section class="pipeline-layout" data-view="work">
         <div class="panel funnel-panel" aria-labelledby="pipeline-heading">
           <div class="section-top">
             <div>

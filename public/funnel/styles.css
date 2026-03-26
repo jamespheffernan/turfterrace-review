@@ -695,6 +695,57 @@ body::before {
   margin: 18px 0;
 }
 
+.overview-funnel-panel {
+  margin-bottom: 18px;
+}
+
+.overview-funnel-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 12px;
+}
+
+.overview-stage-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 250, 242, 0.8);
+  padding: 16px;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.overview-stage-card:hover,
+.overview-stage-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: 0 14px 26px rgba(72, 48, 26, 0.08);
+}
+
+.overview-stage-card span,
+.overview-stage-card strong,
+.overview-stage-card small {
+  display: block;
+}
+
+.overview-stage-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.overview-stage-card strong {
+  margin: 10px 0 8px;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.overview-stage-card small {
+  color: var(--muted);
+}
+
 .operator-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(280px, 0.85fr));
@@ -1915,6 +1966,7 @@ body::before {
   }
 
   .hero-brief,
+  .overview-funnel-track,
   .operator-grid,
   .system-grid,
   .funnel-track {
@@ -2002,6 +2054,7 @@ body::before {
   .source-grid,
   .detail-mini-grid,
   .metric-grid.compact,
+  .overview-funnel-track,
   .operator-grid,
   .system-grid,
   .calendar-overview,

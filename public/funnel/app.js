@@ -1,9 +1,9 @@
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const VIEWS = ["overview", "work", "calendar", "system"];
+const VIEWS = ["work", "overview", "calendar", "system"];
 
 const state = {
   data: null,
-  activeView: "overview",
+  activeView: "work",
   selectedStage: null,
   contactType: "all",
   contactSearch: "",
@@ -31,6 +31,7 @@ const elements = {
   approvalSummary: document.getElementById("approvalSummary"),
   approvalMetrics: document.getElementById("approvalMetrics"),
   pendingBatches: document.getElementById("pendingBatches"),
+  overviewFunnelTrack: document.getElementById("overviewFunnelTrack"),
   funnelTrack: document.getElementById("funnelTrack"),
   detailStageLabel: document.getElementById("detailStageLabel"),
   detailStageMeta: document.getElementById("detailStageMeta"),
@@ -327,7 +328,7 @@ function emptyState(message) {
 function parseViewFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const candidate = params.get("view") || window.location.hash.replace("#", "");
-  return VIEWS.includes(candidate) ? candidate : "overview";
+  return VIEWS.includes(candidate) ? candidate : "work";
 }
 
 function updateViewUrl() {
@@ -340,8 +341,8 @@ function updateViewUrl() {
 function renderViewToggle() {
   if (!elements.viewToggle) return;
   const labels = {
-    overview: "Overview",
     work: "Work queue",
+    overview: "Overview",
     calendar: "Calendar",
     system: "System",
   };
@@ -849,6 +850,41 @@ function renderFunnel() {
       renderFunnel();
       announceStatus(`${STAGE_LABELS[state.selectedStage] || state.selectedStage} selected`, { tone: "info", toast: false });
       pulseElement(elements.detailPanel);
+    });
+  });
+}
+
+function renderOverviewFunnel() {
+  if (!state.data || !elements.overviewFunnelTrack) return;
+  const notes = {
+    new_lead: "Untouched inventory",
+    contacted: "Waiting on signal",
+    follow_up_due: "Needs action",
+    replied: "Warm conversations",
+    parked: "Out of cycle",
+  };
+
+  elements.overviewFunnelTrack.innerHTML = state.data.pipeline
+    .map((entry, index) => `
+      <button class="overview-stage-card delight-reveal" ${delightAttr(index, 2)} type="button" data-overview-stage="${escapeHtml(entry.key)}">
+        <span>${escapeHtml(entry.label)}</span>
+        <strong>${escapeHtml(entry.count)}</strong>
+        <small>${escapeHtml(notes[entry.key] || "Pipeline stage")}</small>
+      </button>
+    `)
+    .join("");
+
+  elements.overviewFunnelTrack.querySelectorAll("[data-overview-stage]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const stage = button.getAttribute("data-overview-stage");
+      if (!stage) return;
+      state.selectedStage = stage;
+      state.activeView = "work";
+      updateViewUrl();
+      renderFunnel();
+      renderStageDetail();
+      applyActiveView({ scroll: true });
+      announceStatus(`${STAGE_LABELS[stage] || stage} opened in Work queue`, { tone: "info", toast: false });
     });
   });
 }
@@ -1595,6 +1631,7 @@ function renderAll() {
   renderHeroBrief();
   renderHeadlineStats();
   renderApprovalSection();
+  renderOverviewFunnel();
   renderFunnel();
   renderStageDetail();
   renderWorkList();
