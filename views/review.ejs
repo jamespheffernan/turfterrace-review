@@ -52,7 +52,7 @@
   <% if (item.tts_status === 'ready' || item.context_status === 'ready') { %>
   <div class="audio-players">
     <% if (item.tts_status === 'ready') { %>
-      <div class="tts-player">
+      <div class="tts-player tts-player--read-aloud">
         <span class="audio-label">📖 Read aloud</span>
         <audio controls preload="none">
           <source src="/tts-cache/<%= item.slug %>.mp3" type="audio/mpeg">
@@ -60,7 +60,7 @@
       </div>
     <% } %>
     <% if (item.context_status === 'ready') { %>
-      <div class="tts-player">
+      <div class="tts-player tts-player--context">
         <span class="audio-label">💬 Context</span>
         <audio controls preload="none">
           <source src="/audio/<%= item.slug %>.mp3" type="audio/mpeg">

@@ -6,6 +6,8 @@
 /* ── Segment Control Toggle ── */
 .sidebar-toggle {
   display: flex;
+  width: 100%;
+  min-width: 0;
   background: var(--surface, #faf9f7);
   border: 1px solid var(--rule, #e2ded8);
   border-radius: 8px;
@@ -15,10 +17,11 @@
 
 .sidebar-toggle-btn {
   flex: 1;
-  padding: 7px 0;
+  min-width: 0;
+  padding: 7px 10px;
   border: none;
   border-radius: 6px;
-  font-family: "Inter", sans-serif;
+  font-family: "Libre Franklin", sans-serif;
   font-size: 12px;
   font-weight: 600;
   background: none;
