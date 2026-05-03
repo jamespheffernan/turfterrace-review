@@ -81,6 +81,17 @@ test('document context truncates large documents deterministically', () => {
   });
 });
 
+test('chat history falls back empty when OpenClaw history scope is unavailable', async () => {
+  const { loadVisibleHistory } = require('../lib/chat/repository');
+  const messages = await loadVisibleHistory({
+    async getHistory() {
+      throw new Error('OpenClaw request failed (403): {"ok":false,"error":{"message":"missing scope: operator.read"}}');
+    },
+  }, 'review:example');
+
+  assert.deepEqual(messages, []);
+});
+
 test('visible chat history filters internal and non-chat messages', () => {
   const visible = filterVisibleMessages([
     { role: 'developer', content: 'hidden context' },
