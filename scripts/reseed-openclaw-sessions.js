@@ -9,10 +9,11 @@ const { createOpenClawClient } = require('../lib/openclaw');
 const { getSessionKey } = require('../lib/review-routing');
 
 const REVIEW_BASE_URL = process.env.REVIEW_BASE_URL || process.env.APP_BASE_URL || 'http://localhost:3457';
-const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN || '840913d59243741296520ed68d2cea56b49934b9c84ff738';
+const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN || '';
 const OPENCLAW_BASE_URL = process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789/v1';
 const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || 'main';
 const CHAT_MODEL = process.env.CHAT_MODEL || `openclaw/${OPENCLAW_AGENT_ID}`;
+const DATA_DIR = process.env.TURF_REVIEW_DATA_DIR || path.join(__dirname, '..', 'data');
 
 function parseArgs(argv) {
   const args = {
@@ -60,13 +61,17 @@ function buildBootstrapPayload(item, reviewUrl) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const db = new Database(path.join(__dirname, '..', 'data', 'reviews.db'), { readonly: true });
-  const openclaw = createOpenClawClient({
+  if (!OPENCLAW_TOKEN && !args.dryRun) {
+    throw new Error('OPENCLAW_TOKEN is required to reseed OpenClaw sessions');
+  }
+
+  const db = new Database(path.join(DATA_DIR, 'reviews.db'), { readonly: true });
+  const openclaw = OPENCLAW_TOKEN ? createOpenClawClient({
     token: OPENCLAW_TOKEN,
     baseUrl: OPENCLAW_BASE_URL,
     agentId: OPENCLAW_AGENT_ID,
     model: CHAT_MODEL,
-  });
+  }) : null;
 
   let rows;
   if (args.slugs.length > 0) {

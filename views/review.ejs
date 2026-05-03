@@ -1,11 +1,11 @@
 <%- include('layout-start', { pageTitle: item.title }) %>
-<% var hasChat = (typeof chatToken !== 'undefined' && chatToken); %>
+<% var reviewChatEnabled = (typeof hasChat !== 'undefined') ? hasChat : true; %>
 <% var chatActionNames = ['chat with author', 'chat', 'ask ai']; %>
 <% var sidebarActions = (typeof actions !== 'undefined' && actions) ? actions.filter(function(a) { return chatActionNames.indexOf(a.toLowerCase()) === -1; }) : []; %>
 <% var actionStatus = item.action_status || item.approval_status; %>
 <% var actionMessage = item.action_message || item.approval_message; %>
-<% if (!hasChat && typeof actions !== 'undefined' && actions) { hasChat = actions.some(function(a) { return chatActionNames.indexOf(a.toLowerCase()) !== -1; }); } %>
-<% if (hasChat) { %>
+<% if (!reviewChatEnabled && typeof actions !== 'undefined' && actions) { reviewChatEnabled = actions.some(function(a) { return chatActionNames.indexOf(a.toLowerCase()) !== -1; }); } %>
+<% if (reviewChatEnabled) { %>
 <link rel="stylesheet" href="/chat.css?v=<%= Date.now() %>">
 <% } %>
 
@@ -37,7 +37,15 @@
   <% } %>
 
   <% if (actionStatus && actionStatus !== 'succeeded') { %>
-    <div class="approval-alert"><%= actionMessage || ('Action status: ' + actionStatus) %></div>
+    <div class="approval-alert">
+      <div>
+        <strong>Action <%= actionStatus %>:</strong>
+        <%= actionMessage || ('Action status: ' + actionStatus) %>
+      </div>
+      <% if (actionStatus === 'failed' || actionStatus === 'blocked') { %>
+        <button type="button" class="approval-retry-btn" onclick="retryDecisionAction()">Retry</button>
+      <% } %>
+    </div>
   <% } %>
 
   <!-- Audio players -->
@@ -55,7 +63,7 @@
       <div class="tts-player">
         <span class="audio-label">💬 Context</span>
         <audio controls preload="none">
-          <source src="/audio/<%= item.slug %>-context.mp3" type="audio/mpeg">
+          <source src="/audio/<%= item.slug %>.mp3" type="audio/mpeg">
         </audio>
       </div>
     <% } %>
@@ -77,7 +85,7 @@
 <!-- Desktop: sticky sidebar -->
 <aside class="action-sidebar" id="reviewSidebar">
   <div class="action-sidebar-inner">
-    <% if (hasChat) { %>
+    <% if (reviewChatEnabled) { %>
     <div class="sidebar-toggle-row">
       <div class="sidebar-toggle">
         <button class="sidebar-toggle-btn active" id="decideTab" type="button">Decide</button>
@@ -107,14 +115,14 @@
       </div>
     </div>
 
-    <% if (hasChat) { %>
-    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>" data-chat-token="<%= typeof chatToken !== 'undefined' ? chatToken : '' %>">
+    <% if (reviewChatEnabled) { %>
+    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>">
       <div class="chat-header">
         <div class="chat-header-copy">
           <span class="chat-title">Ask about this review</span>
           <span class="chat-status" id="chatStatus">Ready when you are</span>
         </div>
-        <button id="chatNewBtn" class="chat-new-btn" type="button">Fresh thread</button>
+        <button id="chatNewBtn" class="chat-new-btn" type="button">Refresh</button>
       </div>
       <div id="chatMessages" class="chat-messages"></div>
       <div class="chat-input-area">
@@ -132,7 +140,7 @@
 <!-- Desktop: decided sidebar -->
 <aside class="action-sidebar" id="reviewSidebar">
   <div class="action-sidebar-inner">
-    <% if (hasChat) { %>
+    <% if (reviewChatEnabled) { %>
     <div class="sidebar-toggle-row">
       <div class="sidebar-toggle">
         <button class="sidebar-toggle-btn active" id="decideTab" type="button">Decide</button>
@@ -155,14 +163,14 @@
       </div>
     </div>
 
-    <% if (hasChat) { %>
-    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>" data-chat-token="<%= typeof chatToken !== 'undefined' ? chatToken : '' %>">
+    <% if (reviewChatEnabled) { %>
+    <div class="chat-view" id="chatView" data-slug="<%= item.slug %>">
       <div class="chat-header">
         <div class="chat-header-copy">
           <span class="chat-title">Ask about this review</span>
           <span class="chat-status" id="chatStatus">Ready when you are</span>
         </div>
-        <button id="chatNewBtn" class="chat-new-btn" type="button">Fresh thread</button>
+        <button id="chatNewBtn" class="chat-new-btn" type="button">Refresh</button>
       </div>
       <div id="chatMessages" class="chat-messages"></div>
       <div class="chat-input-area">
@@ -180,9 +188,9 @@
 </div><!-- /.review-layout -->
 
 <!-- Floating buttons: mic + decision quick-access + chat -->
-<% if (hasChat || item.status === 'pending') { %>
+<% if (reviewChatEnabled || item.status === 'pending') { %>
 <div class="floating-buttons">
-  <% if (hasChat) { %>
+  <% if (reviewChatEnabled) { %>
   <button type="button" class="btn-fab btn-fab-chat" id="mobileChatFab" title="Chat">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
   </button>
@@ -805,12 +813,42 @@
       document.querySelectorAll('.btn-action').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
     }
   }
+
+  async function retryDecisionAction() {
+    const slug = '<%= item.slug %>';
+    const button = document.querySelector('.approval-retry-btn');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Queued';
+    }
+    try {
+      const res = await fetch('/api/items/' + slug + '/action/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        window.location.reload();
+        return;
+      }
+      const data = await res.json();
+      if (window.showToast) window.showToast('Retry failed: ' + (data.error || 'Unknown'), { error: true });
+      else alert('Retry failed: ' + (data.error || 'Unknown'));
+    } catch (err) {
+      if (window.showToast) window.showToast('Network error', { error: true });
+      else alert('Network error');
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Retry';
+      }
+    }
+  }
 </script>
 
 <!-- DEBUG: template version marker -->
-<div id="tmpl-debug" style="display:none;" data-version="chat-redesign-v1" data-has-chat="<%= hasChat %>"></div>
+<div id="tmpl-debug" style="display:none;" data-version="chat-http-v1" data-has-chat="<%= reviewChatEnabled %>"></div>
 
-<% if (hasChat) { %>
+<% if (reviewChatEnabled) { %>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="/chat.js?v=<%= Date.now() %>"></script>
 <% } %>

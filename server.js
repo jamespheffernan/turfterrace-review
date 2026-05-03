@@ -1,16 +1,16 @@
 require('dotenv').config();
 
-// SECURITY: Fail fast if SESSION_SECRET is not set — weak fallback is a security risk
-if (!process.env.SESSION_SECRET) {
-  console.error('FATAL: SESSION_SECRET environment variable must be set. Refusing to start with a weak fallback.');
+const { loadConfig } = require('./lib/config');
+
+let config;
+try {
+  config = loadConfig(process.env, __dirname);
+} catch (error) {
+  console.error(`FATAL: ${error.message}`);
   process.exit(1);
 }
 
 const express = require('express');
-const Database = require('better-sqlite3');
-const { Marked } = require('marked');
-const { markedHighlight } = require('marked-highlight');
-const hljs = require('highlight.js');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -18,9 +18,13 @@ const { execFile, execFileSync } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const crypto = require('crypto');
-const { createChatModule } = require('./lib/db/chat');
+const { createContentHash, createReviewDatabase, ensureDir } = require('./lib/db');
+const { createChatRouter } = require('./lib/chat/routes');
 const { createFunnelDashboardService } = require('./lib/funnel/dashboard');
 const { createOpenClawClient } = require('./lib/openclaw');
+const { renderSourceDocument, stripMarkdownToPlain } = require('./lib/reviews/render');
+const { createReviewStatements } = require('./lib/reviews/repository');
+const { readSourceDocument, resolveGitTrackedSource } = require('./lib/reviews/source-paths');
 const {
   ALLOWED_CATEGORIES,
   DECISION_SCHEMA_VERSION,
@@ -38,7 +42,6 @@ const {
 const OpenAI = require('openai');
 const multer = require('multer');
 const csrf = require('csurf');
-const xss = require('xss');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -47,17 +50,13 @@ const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'im
 const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 
 // TTS cache directory
-const ttsCacheDir = path.join(__dirname, 'tts-cache');
-if (!fs.existsSync(ttsCacheDir)) fs.mkdirSync(ttsCacheDir);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ttsCacheDir = config.paths.ttsCacheDir;
+ensureDir(ttsCacheDir);
+const openai = new OpenAI({ apiKey: config.openai.apiKey });
 const MIN_TTS_CHARS = 500;
 
 const app = express();
-const PORT = process.env.PORT || 3457;
-const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN || '840913d59243741296520ed68d2cea56b49934b9c84ff738';
-const OPENCLAW_BASE_URL = process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789/v1';
-const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || 'main';
-const CHAT_MODEL = process.env.CHAT_MODEL || `openclaw/${OPENCLAW_AGENT_ID}`;
+const PORT = config.port;
 
 // --- SSE live-refresh ---
 const sseClients = new Set();
@@ -70,151 +69,26 @@ function broadcastSSE(event, data) {
 }
 
 // --- Database setup ---
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+const dataDir = config.paths.dataDir;
+ensureDir(dataDir);
 
 // Uploads directory — created on startup
-const uploadsDir = path.join(dataDir, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadsDir = config.paths.uploadsDir;
+ensureDir(uploadsDir);
+ensureDir(config.paths.audioDir);
 
-const db = new Database(path.join(dataDir, 'reviews.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    markdown TEXT NOT NULL,
-    rendered_html TEXT NOT NULL,
-    category TEXT DEFAULT 'general',
-    status TEXT DEFAULT 'pending',
-    decision TEXT,
-    actions TEXT,
-    feedback TEXT,
-    content_hash TEXT,
-    mindwtr_task_id TEXT,
-    mindwtr_project_id TEXT,
-    on_approve TEXT,
-    session_key TEXT,
-    workspace_dir TEXT,
-    source_path TEXT,
-    decision_schema_version INTEGER DEFAULT 1,
-    action_status TEXT DEFAULT NULL,
-    action_message TEXT,
-    action_updated_at TEXT,
-    tts_status TEXT DEFAULT NULL,
-    context_status TEXT DEFAULT NULL,
-    context_summary TEXT,
-    approval_status TEXT DEFAULT NULL,
-    approval_message TEXT,
-    approval_exit_code INTEGER,
-    approval_updated_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )
-`);
-
-// Migrate: add columns if missing (for existing DBs)
-try { db.exec('ALTER TABLE items ADD COLUMN decision TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN actions TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN content_hash TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN mindwtr_task_id TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN mindwtr_project_id TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN on_approve TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN session_key TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN workspace_dir TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN source_path TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN decision_schema_version INTEGER DEFAULT 1'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN action_status TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN action_message TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN action_updated_at TEXT'); } catch(e) {}
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_content_hash ON items(content_hash)'); } catch(e) {}
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_items_session_key ON items(session_key)'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN tts_status TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN context_status TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN context_summary TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN approval_status TEXT DEFAULT NULL'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN approval_message TEXT'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN approval_exit_code INTEGER'); } catch(e) {}
-try { db.exec('ALTER TABLE items ADD COLUMN approval_updated_at TEXT'); } catch(e) {}
-
-// --- Annotations table ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS annotations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT NOT NULL,
-    quote TEXT,
-    anchor_type TEXT NOT NULL DEFAULT 'text',
-    anchor_ref TEXT,
-    comment TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (slug) REFERENCES items(slug)
-  )
-`);
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_annotations_slug ON annotations(slug)'); } catch(e) {}
-
-// C4: Durable decision outbox — notifications survive OpenClaw downtime
-db.exec(`
-  CREATE TABLE IF NOT EXISTS decision_outbox (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    sent_at TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  )
-`);
-try { db.exec('CREATE INDEX IF NOT EXISTS idx_decision_outbox_pending ON decision_outbox(sent_at, created_at)'); } catch(e) {}
-
-// Backfill content_hash for legacy rows so dedupe works against old data too.
-try {
-  const legacyRows = db.prepare('SELECT id, title, markdown FROM items WHERE content_hash IS NULL').all();
-  const updateContentHash = db.prepare('UPDATE items SET content_hash = ? WHERE id = ?');
-  const tx = db.transaction((rows) => {
-    for (const row of rows) {
-      const hash = crypto.createHash('sha256').update(`${row.title}\n---\n${row.markdown || ''}`, 'utf8').digest('hex');
-      updateContentHash.run(hash, row.id);
-    }
-  });
-  tx(legacyRows);
-} catch (e) {
-  console.error('Failed to backfill content hashes:', e.message);
-}
-
-// --- Marked setup ---
-const marked = new Marked(
-  markedHighlight({
-    langPrefix: 'hljs language-',
-    highlight(code, lang) {
-      if (lang === 'mermaid') return code;
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value;
-      }
-      return hljs.highlightAuto(code).value;
-    }
-  })
-);
-const _renderer = new marked.Renderer();
-_renderer.code = function({ text, lang }) {
-  if (lang === 'mermaid') {
-    return `<div class="mermaid">${text}</div>`;
-  }
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<pre><code class="hljs language-${lang || ''}">${escaped}</code></pre>`;
-};
-marked.setOptions({ gfm: true, breaks: true, renderer: _renderer });
+const db = createReviewDatabase({ dataDir });
+const ACTION_RETRY_DELAY_SECONDS = Number(process.env.TURF_REVIEW_ACTION_RETRY_SECONDS || 60);
+const ACTION_MAX_ATTEMPTS = Number(process.env.TURF_REVIEW_ACTION_MAX_ATTEMPTS || 3);
 
 // --- Middleware ---
 const session = require('express-session');
 
 app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
+app.set('views', config.paths.viewsDir);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
-const publicStatic = express.static(path.join(__dirname, 'public'), { index: false, redirect: false });
+const publicStatic = express.static(config.paths.publicDir, { index: false, redirect: false });
 app.use((req, res, next) => {
   if (req.path === '/funnel' || req.path === '/funnel/' || req.path === '/funnel/index.html') {
     return next();
@@ -222,27 +96,18 @@ app.use((req, res, next) => {
   return publicStatic(req, res, next);
 });
 
-// --- Chat module ---
-const chatModule = createChatModule({
-  dataDir: path.join(__dirname, 'data'),
-  openclawToken: OPENCLAW_TOKEN,
-  openclawBaseUrl: OPENCLAW_BASE_URL,
-  openclawAgentId: OPENCLAW_AGENT_ID,
-  openaiApiKey: process.env.OPENAI_API_KEY || '',
-  chatModel: CHAT_MODEL,
-});
-const openclawClient = createOpenClawClient({
-  token: OPENCLAW_TOKEN,
-  baseUrl: OPENCLAW_BASE_URL,
-  agentId: OPENCLAW_AGENT_ID,
-  model: CHAT_MODEL,
-});
-app.use('/tts-cache', express.static(path.join(__dirname, 'tts-cache')));
-app.use('/audio', express.static(path.join(__dirname, 'data', 'audio')));
+const openclawClient = config.openclaw.token ? createOpenClawClient({
+  token: config.openclaw.token,
+  baseUrl: config.openclaw.baseUrl,
+  agentId: config.openclaw.agentId,
+  model: config.openclaw.chatModel,
+}) : null;
+app.use('/tts-cache', express.static(config.paths.ttsCacheDir));
+app.use('/audio', express.static(config.paths.audioDir));
 app.use('/uploads', express.static(uploadsDir));
 
 app.use(session({
-  secret: process.env.SESSION_SECRET, // Required — startup fails if not set
+  secret: config.auth.sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
@@ -250,8 +115,8 @@ app.use(session({
 
 // Auth: cookie session + Basic Auth fallback (for API calls from scripts)
 function auth(req, res, next) {
-  const user = process.env.REVIEW_USER;
-  const pass = process.env.REVIEW_PASSWORD;
+  const user = config.auth.reviewUser;
+  const pass = config.auth.reviewPassword;
   if (!user || !pass) return next();
 
   // Already logged in via session
@@ -274,8 +139,8 @@ function auth(req, res, next) {
 app.use(auth);
 
 function getReviewBaseUrl(req) {
-  if (process.env.TURF_REVIEW_BASE_URL) {
-    return process.env.TURF_REVIEW_BASE_URL.replace(/\/+$/, '');
+  if (config.reviewBaseUrl) {
+    return config.reviewBaseUrl.replace(/\/+$/, '');
   }
 
   const forwardedProto = req.get('x-forwarded-proto');
@@ -319,7 +184,7 @@ app.get('/login', (req, res) => {
 
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
-  if (username === process.env.REVIEW_USER && password === process.env.REVIEW_PASSWORD) {
+  if (username === config.auth.reviewUser && password === config.auth.reviewPassword) {
     req.session.authenticated = true;
     return res.redirect(req.query.next || '/');
   }
@@ -334,10 +199,6 @@ app.get('/logout', (req, res) => {
 // --- Helpers ---
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-
-function createContentHash(title, markdown) {
-  return crypto.createHash('sha256').update(`${title}\n---\n${markdown || ''}`, 'utf8').digest('hex');
 }
 
 function normalizeEventText(text) {
@@ -371,112 +232,7 @@ function notifyBenji(payload) {
   });
 }
 
-function sanitizeRenderedHtml(rawHtml) {
-  return xss(rawHtml, {
-    whiteList: {
-      a: ['href', 'title', 'target'],
-      b: [], strong: [], i: [], em: [], s: [], del: [],
-      p: [], br: [], hr: [],
-      h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
-      ul: [], ol: [], li: [],
-      blockquote: [],
-      pre: ['class'], code: ['class'],
-      table: [], thead: [], tbody: [], tr: [], th: ['scope'], td: [],
-      img: ['src', 'alt', 'title'],
-      span: ['class'], div: ['class'],
-    },
-    stripIgnoreTag: true,
-  });
-}
-
-function renderSourceDocument({ markdown, html }) {
-  const sourceMarkdown = markdown || '';
-  const rawHtml = html || marked.parse(sourceMarkdown);
-  return {
-    markdown: sourceMarkdown,
-    rendered_html: sanitizeRenderedHtml(rawHtml),
-  };
-}
-
-function assertAbsolutePath(value, label) {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${label} is required`);
-  }
-  if (!path.isAbsolute(value)) {
-    throw new Error(`${label} must be an absolute path`);
-  }
-  return path.resolve(value);
-}
-
-function assertPathInside(parentDir, childPath, childLabel) {
-  const relative = path.relative(parentDir, childPath);
-  if (!relative || relative === '') return;
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`${childLabel} must be inside workspaceDir`);
-  }
-}
-
-function resolveGitTrackedSource(workspaceDir, sourcePath) {
-  const resolvedWorkspaceDir = assertAbsolutePath(workspaceDir, 'workspaceDir');
-  const resolvedSourcePath = assertAbsolutePath(sourcePath, 'sourcePath');
-  assertPathInside(resolvedWorkspaceDir, resolvedSourcePath, 'sourcePath');
-
-  let gitRoot;
-  try {
-    gitRoot = execFileSync('git', ['-C', resolvedWorkspaceDir, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch (_error) {
-    throw new Error('workspaceDir must be inside a git repository');
-  }
-
-  const relativeToGitRoot = path.relative(gitRoot, resolvedSourcePath);
-  if (relativeToGitRoot.startsWith('..') || path.isAbsolute(relativeToGitRoot)) {
-    throw new Error('sourcePath must be inside the git repository for workspaceDir');
-  }
-
-  try {
-    execFileSync('git', ['-C', gitRoot, 'ls-files', '--error-unmatch', relativeToGitRoot], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-  } catch (_error) {
-    throw new Error('sourcePath must point to a git-tracked file');
-  }
-
-  return {
-    gitRoot,
-    workspaceDir: resolvedWorkspaceDir,
-    sourcePath: resolvedSourcePath,
-    relativeToGitRoot,
-  };
-}
-
-function readSourceDocument(sourcePath) {
-  return fs.readFileSync(sourcePath, 'utf8');
-}
-
-function buildGitReviewUrl(slug) {
-  return `/review/${slug}`;
-}
-
 // --- Read Aloud TTS (Edge TTS) ---
-function stripMarkdownToPlain(text) {
-  return (text || '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/#{1,6}\s*/g, '')
-    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
-    .replace(/`{1,3}[^`]*`{1,3}/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/!\[.*?\]\(.*?\)/g, '')
-    .replace(/^\s*[-*+]\s+/gm, '')
-    .replace(/^\s*\d+\.\s+/gm, '')
-    .replace(/^\s*>\s*/gm, '')
-    .replace(/---+/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 const activeTtsJobs = new Set();
 const activeContextJobs = new Set();
 
@@ -583,7 +339,7 @@ function reconcileInterruptedAudioJobs() {
 
   for (const row of rows) {
     const ttsPath = path.join(ttsCacheDir, `${row.slug}.mp3`);
-    const contextPath = path.join(__dirname, 'data', 'audio', `${row.slug}.mp3`);
+    const contextPath = path.join(config.paths.audioDir, `${row.slug}.mp3`);
 
     if (row.tts_status === 'generating') {
       db.prepare('UPDATE items SET tts_status = ? WHERE slug = ?')
@@ -604,7 +360,7 @@ function resolveAudioStatus(item, kind) {
   const activeJobs = kind === 'tts' ? activeTtsJobs : activeContextJobs;
   const outputPath = kind === 'tts'
     ? path.join(ttsCacheDir, `${item.slug}.mp3`)
-    : path.join(__dirname, 'data', 'audio', `${item.slug}.mp3`);
+    : path.join(config.paths.audioDir, `${item.slug}.mp3`);
 
   if (item[statusKey] !== 'generating') return item;
 
@@ -694,8 +450,8 @@ function generateContextMemo(slug) {
     return;
   }
 
-  const audioDir = path.join(__dirname, 'data', 'audio');
-  if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
+  const audioDir = config.paths.audioDir;
+  ensureDir(audioDir);
   const audioPath = path.join(audioDir, `${slug}.mp3`);
 
   activeContextJobs.add(slug);
@@ -923,81 +679,7 @@ function republishItemFromSource(item) {
 }
 
 // --- Prepared statements ---
-const stmts = {
-  insert: db.prepare(`
-    INSERT INTO items (
-      slug, title, markdown, rendered_html, category, actions, content_hash,
-      mindwtr_task_id, mindwtr_project_id, on_approve, session_key, workspace_dir,
-      source_path, decision_schema_version
-    )
-    VALUES (
-      @slug, @title, @markdown, @rendered_html, @category, @actions, @content_hash,
-      @mindwtr_task_id, @mindwtr_project_id, @on_approve, @session_key, @workspace_dir,
-      @source_path, @decision_schema_version
-    )
-  `),
-  getByContentHash: db.prepare('SELECT slug FROM items WHERE content_hash = ? ORDER BY created_at ASC LIMIT 1'),
-  getBySlug: db.prepare('SELECT * FROM items WHERE slug = ?'),
-  listAll: db.prepare(`
-    SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           session_key, workspace_dir, source_path, decision_schema_version,
-           action_status, action_message, approval_status, approval_message, approval_exit_code,
-           LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
-           created_at, updated_at
-    FROM items
-    ORDER BY created_at DESC
-  `),
-  listByStatus: db.prepare(`
-    SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           session_key, workspace_dir, source_path, decision_schema_version,
-           action_status, action_message, approval_status, approval_message, approval_exit_code,
-           LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
-           created_at, updated_at
-    FROM items
-    WHERE status = ?
-    ORDER BY created_at DESC
-  `),
-  listByCategory: db.prepare(`
-    SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           session_key, workspace_dir, source_path, decision_schema_version,
-           action_status, action_message, approval_status, approval_message, approval_exit_code,
-           LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
-           created_at, updated_at
-    FROM items
-    WHERE category = ?
-    ORDER BY created_at DESC
-  `),
-  listByStatusAndCategory: db.prepare(`
-    SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
-           session_key, workspace_dir, source_path, decision_schema_version,
-           action_status, action_message, approval_status, approval_message, approval_exit_code,
-           LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
-           created_at, updated_at
-    FROM items
-    WHERE status = ? AND category = ?
-    ORDER BY created_at DESC
-  `),
-  decide: db.prepare(`
-    UPDATE items
-    SET status = @status,
-        decision = @decision,
-        feedback = @feedback,
-        action_status = @action_status,
-        action_message = @action_message,
-        action_updated_at = datetime('now'),
-        approval_status = @action_status,
-        approval_message = @action_message,
-        approval_exit_code = NULL,
-        approval_updated_at = datetime('now'),
-        updated_at = datetime('now')
-    WHERE slug = @slug
-  `),
-  dismiss: db.prepare(`UPDATE items SET status = 'dismissed', decision = 'Dismissed', updated_at = datetime('now') WHERE slug = @slug`),
-  enqueueOutbox: db.prepare(`INSERT INTO decision_outbox (slug, payload) VALUES (@slug, @payload)`),
-  listPendingOutbox: db.prepare(`SELECT id, payload FROM decision_outbox WHERE sent_at IS NULL ORDER BY created_at ASC, id ASC LIMIT @limit`),
-  markOutboxSent: db.prepare(`UPDATE decision_outbox SET attempts = attempts + 1, last_error = NULL, sent_at = datetime('now') WHERE id = @id`),
-  markOutboxFailed: db.prepare(`UPDATE decision_outbox SET attempts = attempts + 1, last_error = @last_error WHERE id = @id`),
-};
+const stmts = createReviewStatements(db);
 
 const funnelDashboard = createFunnelDashboardService({ reviewDb: db });
 
@@ -1052,6 +734,12 @@ app.get('/api/funnel/dashboard', async (req, res) => {
 function listAnnotationsForSlug(slug) {
   return db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(slug);
 }
+
+app.use(createChatRouter({
+  getItem: (slug) => stmts.getBySlug.get(slug),
+  listAnnotations: listAnnotationsForSlug,
+  openclaw: openclawClient,
+}));
 
 async function createOmniFocusInboxItem(item, reviewUrl, feedback, annotations) {
   const noteParts = [
@@ -1187,6 +875,106 @@ async function routeDecisionAction(item, { decision, feedback, annotations, revi
       updateActionState(item.slug, 'failed', `Unsupported decision: ${decision}`);
   }
 }
+
+let drainingActions = false;
+let actionDrainScheduled = false;
+
+function scheduleActionDrain() {
+  if (actionDrainScheduled) return;
+  actionDrainScheduled = true;
+  setImmediate(async () => {
+    actionDrainScheduled = false;
+    await drainDecisionActions();
+  });
+}
+
+function safeParseActionPayload(row) {
+  try {
+    return JSON.parse(row.payload);
+  } catch (error) {
+    throw new Error(`Decision action ${row.id} has invalid payload: ${error.message}`);
+  }
+}
+
+function normalizeActionTerminalStatus(status) {
+  const normalized = String(status || '').trim();
+  if (['succeeded', 'blocked', 'failed'].includes(normalized)) return normalized;
+  return 'blocked';
+}
+
+async function drainDecisionActions(limit = 5) {
+  if (drainingActions) return;
+  drainingActions = true;
+  try {
+    stmts.recoverStaleActions.run({ minutes: 15 });
+    const rows = stmts.listRunnableActions.all({ limit });
+    for (const row of rows) {
+      const claim = stmts.markActionRunning.run({ id: row.id });
+      if (claim.changes === 0) continue;
+
+      const attemptsAfterClaim = row.attempts + 1;
+      let payload;
+      try {
+        payload = safeParseActionPayload(row);
+        const item = stmts.getBySlug.get(row.slug);
+        if (!item) {
+          updateActionState(row.slug, 'failed', 'Review item disappeared before action could run.');
+          stmts.markActionDone.run({
+            id: row.id,
+            status: 'failed',
+            last_error: 'Review item disappeared before action could run.',
+          });
+          continue;
+        }
+
+        updateActionState(row.slug, 'running', `Running ${payload.decision || row.decision} action...`);
+        await routeDecisionAction(item, {
+          decision: payload.decision || row.decision,
+          feedback: payload.feedback,
+          annotations: payload.annotations || [],
+          reviewUrl: payload.reviewUrl,
+        });
+
+        const latest = stmts.getBySlug.get(row.slug);
+        const finalStatus = normalizeActionTerminalStatus(latest?.action_status);
+        const finalMessage = latest?.action_message || latest?.approval_message || null;
+        stmts.markActionDone.run({
+          id: row.id,
+          status: finalStatus,
+          last_error: finalStatus === 'succeeded' ? null : finalMessage,
+        });
+        broadcastSSE('approval', {
+          slug: row.slug,
+          status: finalStatus,
+        });
+      } catch (error) {
+        const message = error.message || 'Decision action failed.';
+        const willRetry = attemptsAfterClaim < row.max_attempts;
+        const displayMessage = willRetry
+          ? `${message} Retrying automatically.`
+          : message;
+        stmts.markActionFailed.run({
+          id: row.id,
+          last_error: message,
+          retry_modifier: `+${ACTION_RETRY_DELAY_SECONDS} seconds`,
+        });
+        updateActionState(row.slug, 'failed', displayMessage);
+        console.error(`[decision-action] ${row.slug}/${row.id}: ${message}`);
+        broadcastSSE('approval', {
+          slug: row.slug,
+          status: 'failed',
+        });
+      }
+    }
+  } finally {
+    drainingActions = false;
+  }
+}
+
+setInterval(() => {
+  void drainDecisionActions();
+}, 15000);
+scheduleActionDrain();
 
 // --- API Routes ---
 
@@ -1353,9 +1141,10 @@ app.post('/api/items/:slug/decide', (req, res) => {
     sourcePath: item.source_path,
     annotations,
     actionStatus,
+    reviewUrl,
   };
 
-  // Transactional: update item + enqueue notification
+  // Transactional: update item + enqueue notification/action records.
   const txDecide = db.transaction(() => {
     stmts.decide.run({
       slug: req.params.slug,
@@ -1366,6 +1155,14 @@ app.post('/api/items/:slug/decide', (req, res) => {
       action_message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
     });
     stmts.enqueueOutbox.run({ slug: req.params.slug, payload: JSON.stringify(payload) });
+    if (actionStatus === 'queued') {
+      stmts.enqueueAction.run({
+        slug: req.params.slug,
+        decision,
+        payload: JSON.stringify(payload),
+        max_attempts: ACTION_MAX_ATTEMPTS,
+      });
+    }
   });
   txDecide();
 
@@ -1379,6 +1176,7 @@ app.post('/api/items/:slug/decide', (req, res) => {
 
   // Fire async drain (best-effort immediate delivery for system event notification)
   void drainDecisionOutbox();
+  if (actionStatus === 'queued') scheduleActionDrain();
 
   res.json({
     status: getStoredStatusForDecision(decision),
@@ -1392,32 +1190,50 @@ app.post('/api/items/:slug/decide', (req, res) => {
       message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
     },
   });
+});
 
-  // Fire-and-forget after the response is on the wire so Jimmy's tap stays snappy.
-  setImmediate(async () => {
-    try {
-      if (actionStatus === 'queued') {
-        updateActionState(req.params.slug, 'running', `Running ${decision} action...`);
-      }
-      await routeDecisionAction(item, {
-        decision,
-        feedback: resolvedFeedback,
-        annotations,
-        reviewUrl,
-      });
-      const latest = stmts.getBySlug.get(req.params.slug);
-      broadcastSSE('approval', {
-        slug: req.params.slug,
-        status: latest?.action_status || null,
-      });
-    } catch (error) {
-      console.error(`[decision-router] ${req.params.slug}: ${error.message}`);
-      updateActionState(req.params.slug, 'failed', error.message || 'Decision routing failed.');
-      broadcastSSE('approval', {
-        slug: req.params.slug,
-        status: 'failed',
-      });
-    }
+app.get('/api/items/:slug/actions', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    slug: req.params.slug,
+    actions: stmts.listActionsForSlug.all(req.params.slug),
+  });
+});
+
+app.post('/api/items/:slug/action/retry', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+
+  const latestAction = stmts.getLatestActionForSlug.get(req.params.slug);
+  if (!latestAction) {
+    return res.status(404).json({ error: 'No decision action exists for this review.' });
+  }
+
+  if (latestAction.status === 'running' || latestAction.status === 'queued') {
+    return res.status(409).json({ error: `Action is already ${latestAction.status}.` });
+  }
+
+  stmts.requeueAction.run({ id: latestAction.id });
+  updateActionState(req.params.slug, 'queued', `Queued ${latestAction.decision} action for retry.`);
+  scheduleActionDrain();
+  res.json({
+    ok: true,
+    slug: req.params.slug,
+    action: {
+      id: latestAction.id,
+      status: 'queued',
+      decision: latestAction.decision,
+    },
+  });
+});
+
+app.get('/api/actions', (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : 'failed';
+  const limit = Math.min(Number(req.query.limit || 50) || 50, 200);
+  res.json({
+    status,
+    actions: stmts.listActionsByStatus.all({ status, limit }),
   });
 });
 
@@ -1622,7 +1438,7 @@ app.get('/funnel/index.html', (_req, res) => {
 
 app.get(['/funnel', '/funnel/'], (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.sendFile(path.join(__dirname, 'public', 'funnel', 'index.html'));
+  res.sendFile(path.join(config.paths.publicDir, 'funnel', 'index.html'));
 });
 
 // Dashboard
@@ -1660,13 +1476,7 @@ app.get('/review/:slug', (req, res) => {
   const actions = getActions(item);
   const returnTab = ['decided', 'parked'].includes(req.query.fromTab) ? req.query.fromTab : 'pending';
 
-  // Chat integration
-  let chatToken = '';
-  if (chatModule) {
-    chatToken = chatModule.generateChatToken(req.params.slug);
-  }
-
-  res.render('review', { item, actions, returnTab, chatToken });
+  res.render('review', { item, actions, returnTab, hasChat: true });
 });
 
 // --- Decision outbox drain (C4: durable notifications) ---
@@ -1709,14 +1519,15 @@ app.use((err, req, res, _next) => {
 });
 
 // --- Start ---
-const server = app.listen(PORT, () => {
-  console.log(`Turf Review running at http://localhost:${PORT}`);
+const listenArgs = config.host ? [PORT, config.host] : [PORT];
+const server = app.listen(...listenArgs, () => {
+  const displayHost = config.host || 'localhost';
+  console.log(`Turf Review running at http://${displayHost}:${PORT}`);
   // Drain any decisions that were queued while OpenClaw was down
   void drainDecisionOutbox();
 });
 
-// Attach WebSocket server for chat
-if (chatModule) {
-  chatModule.attachToServer(server, (slug) => stmts.getBySlug.get(slug));
-  console.log('Chat WebSocket attached');
-}
+server.on('error', (error) => {
+  console.error(`[server] Failed to listen on port ${PORT}: ${error.message}`);
+  process.exit(1);
+});

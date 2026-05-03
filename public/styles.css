@@ -304,6 +304,32 @@ main {
   font-weight: 500;
   color: var(--amber);
   border-radius: 0 6px 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.approval-retry-btn {
+  border: 1px solid rgba(151, 96, 39, 0.25);
+  background: var(--bg-paper);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.approval-retry-btn:hover {
+  border-color: var(--amber);
+}
+
+.approval-retry-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* === Rendered Content (Markdown) === */

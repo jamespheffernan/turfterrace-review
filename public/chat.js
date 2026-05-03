@@ -1,7 +1,6 @@
 (function () {
   "use strict";
 
-  // ── DOM refs ──
   var sidebar = document.getElementById("reviewSidebar");
   var decideView = document.getElementById("decideView");
   var chatView = document.getElementById("chatView");
@@ -14,23 +13,18 @@
   var messagesEl = document.getElementById("chatMessages");
   var inputEl = document.getElementById("chatInput");
   var sendBtn = document.getElementById("chatSendBtn");
-  var newChatBtn = document.getElementById("chatNewBtn");
+  var refreshBtn = document.getElementById("chatNewBtn");
   var chatStatus = document.getElementById("chatStatus");
 
   if (!chatView || !messagesEl || !inputEl) return;
 
   var slug = chatView.dataset.slug;
-  var token = chatView.dataset.chatToken;
-
-  var ws = null;
   var isChatOpen = false;
-  var isStreaming = false;
-  var streamBuffer = "";
-  var streamMessageId = null;
-  var streamEl = null;
-  var renderTimer = null;
-  var userScrolledUp = false;
+  var isLoadingHistory = false;
+  var isSending = false;
+  var hasLoadedHistory = false;
   var hasMessages = false;
+  var userScrolledUp = false;
 
   function isMobileViewport() {
     return window.matchMedia("(max-width: 900px)").matches;
@@ -50,38 +44,44 @@
   }
 
   function setStatus(text) {
-    if (chatStatus) {
-      chatStatus.textContent = text;
-    }
+    if (chatStatus) chatStatus.textContent = text;
   }
 
   function syncComposerState() {
     if (!inputEl || !sendBtn) return;
-    sendBtn.disabled = isStreaming || inputEl.disabled || !inputEl.value.trim();
+    sendBtn.disabled = isLoadingHistory || isSending || !inputEl.value.trim();
   }
 
-  // ── Sidebar toggle ──
   function showDecide() {
     isChatOpen = false;
-    sidebar.classList.remove("chat-mode");
-    decideTab.classList.add("active");
-    chatTab.classList.remove("active");
+    if (sidebar) sidebar.classList.remove("chat-mode");
+    if (decideTab) decideTab.classList.add("active");
+    if (chatTab) chatTab.classList.remove("active");
     if (inputEl) inputEl.blur();
+    if (decideView) decideView.removeAttribute("aria-hidden");
+    if (chatView) chatView.setAttribute("aria-hidden", "true");
     setStatus(hasMessages ? "Conversation tucked away" : "Ready when you are");
   }
 
   function showChat() {
     isChatOpen = true;
-    sidebar.classList.add("chat-mode");
-    chatTab.classList.add("active");
-    decideTab.classList.remove("active");
+    if (sidebar) sidebar.classList.add("chat-mode");
+    if (chatTab) chatTab.classList.add("active");
+    if (decideTab) decideTab.classList.remove("active");
+    if (decideView) decideView.setAttribute("aria-hidden", "true");
+    if (chatView) chatView.removeAttribute("aria-hidden");
+
     if (isMobileViewport()) {
       setSidebarOpen(true);
     } else {
       inputEl.focus();
     }
-    connectWs();
-    setStatus(hasMessages ? "Conversation live" : "Ask the first question");
+
+    if (!hasLoadedHistory) {
+      loadHistory();
+    } else {
+      setStatus(hasMessages ? "Conversation live" : "Ask the first question");
+    }
   }
 
   function openMobileChat() {
@@ -92,38 +92,25 @@
   window.openMobileChat = openMobileChat;
   window.closeMobileSidebar = closeSidebar;
 
-  if (decideTab) {
-    decideTab.addEventListener("click", showDecide);
-  }
-  if (chatTab) {
-    chatTab.addEventListener("click", showChat);
-  }
-  if (mobileChatFab) {
-    mobileChatFab.addEventListener("click", openMobileChat);
-  }
-  if (sidebarCloseBtn) {
-    sidebarCloseBtn.addEventListener("click", closeSidebar);
-  }
-  if (sidebarOverlay) {
-    sidebarOverlay.addEventListener("click", closeSidebar);
-  }
+  if (decideTab) decideTab.addEventListener("click", showDecide);
+  if (chatTab) chatTab.addEventListener("click", showChat);
+  if (mobileChatFab) mobileChatFab.addEventListener("click", openMobileChat);
+  if (sidebarCloseBtn) sidebarCloseBtn.addEventListener("click", closeSidebar);
+  if (sidebarOverlay) sidebarOverlay.addEventListener("click", closeSidebar);
   window.addEventListener("resize", function () {
-    if (!isMobileViewport()) {
-      setSidebarOpen(false);
-    }
+    if (!isMobileViewport()) setSidebarOpen(false);
   });
 
-  // ── Show chat dot indicator ──
   function updateDot() {
-    if (chatDot) {
-      chatDot.style.display = hasMessages ? "inline-block" : "none";
-    }
+    if (chatDot) chatDot.style.display = hasMessages ? "inline-block" : "none";
   }
 
-  // ── Relative time ──
-  function relativeTime(iso) {
-    if (!iso) return "";
-    var diff = Math.floor((Date.now() - new Date(iso + "Z").getTime()) / 1000);
+  function relativeTime(value) {
+    if (!value) return "";
+    var normalized = String(value).indexOf("T") === -1 ? String(value).replace(" ", "T") + "Z" : String(value);
+    var millis = new Date(normalized).getTime();
+    if (Number.isNaN(millis)) return "";
+    var diff = Math.floor((Date.now() - millis) / 1000);
     if (diff < 10) return "just now";
     if (diff < 60) return diff + "s ago";
     if (diff < 3600) return Math.floor(diff / 60) + "m ago";
@@ -131,19 +118,17 @@
     return Math.floor(diff / 86400) + "d ago";
   }
 
-  // ── Markdown rendering ──
   function renderMarkdown(text) {
     if (typeof marked !== "undefined" && marked.parse) {
-      return marked.parse(text);
+      return marked.parse(text || "");
     }
-    return text
+    return String(text || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/\n/g, "<br>");
   }
 
-  // ── Copy-to-clipboard on code blocks ──
   function addCopyButtons(container) {
     container.querySelectorAll("pre").forEach(function (pre) {
       if (pre.querySelector(".btn-copy-code")) return;
@@ -165,23 +150,31 @@
     });
   }
 
-  // ── Auto-scroll logic ──
   function isNearBottom() {
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 60;
   }
 
   function scrollToBottom() {
-    if (!userScrolledUp) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
+    if (!userScrolledUp) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   messagesEl.addEventListener("scroll", function () {
     userScrolledUp = !isNearBottom();
   });
 
-  // ── Message rendering ──
+  function clearMessages() {
+    messagesEl.innerHTML = "";
+  }
+
+  function removeEmpty() {
+    var empty = messagesEl.querySelector(".chat-empty");
+    if (empty) empty.remove();
+  }
+
   function appendMessage(role, content, timestamp, id) {
+    removeThinking();
+    removeEmpty();
+
     var div = document.createElement("div");
     div.className = "chat-message " + role;
     if (id) div.dataset.messageId = id;
@@ -200,7 +193,6 @@
       div.appendChild(time);
     }
 
-    removeThinking();
     messagesEl.appendChild(div);
     scrollToBottom();
     return div;
@@ -211,8 +203,7 @@
     var div = document.createElement("div");
     div.className = "chat-thinking";
     div.id = "chatThinking";
-    div.innerHTML =
-      '<div class="thinking-dots"><span></span><span></span><span></span></div> Thinking';
+    div.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div> Thinking';
     messagesEl.appendChild(div);
     scrollToBottom();
   }
@@ -220,6 +211,18 @@
   function removeThinking() {
     var el = document.getElementById("chatThinking");
     if (el) el.remove();
+  }
+
+  function showError(message) {
+    removeThinking();
+    removeEmpty();
+    var div = document.createElement("div");
+    div.className = "chat-message assistant";
+    div.style.borderColor = "#b84233";
+    div.style.color = "#b84233";
+    div.textContent = message || "Chat is unavailable right now.";
+    messagesEl.appendChild(div);
+    scrollToBottom();
   }
 
   function showEmpty() {
@@ -236,190 +239,119 @@
       '<button type="button" class="chat-suggestion" data-prompt="If you changed one thing first, what would it be?">First change</button>' +
       "</div>" +
       "</div>";
+
     messagesEl.querySelectorAll(".chat-suggestion").forEach(function (button) {
       button.addEventListener("click", function () {
         inputEl.value = button.dataset.prompt || "";
         syncComposerState();
-        if (!isMobileViewport()) {
-          inputEl.focus();
-        }
+        if (!isMobileViewport()) inputEl.focus();
       });
     });
   }
 
-  function clearMessages() {
-    messagesEl.innerHTML = "";
+  async function fetchJson(url, options) {
+    var response = await fetch(url, options || {});
+    var payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      var message = (payload && (payload.detail || payload.error)) || response.statusText || "Request failed";
+      throw new Error(message);
+    }
+
+    return payload || {};
   }
 
-  // ── Input handling ──
-  function setInputEnabled(enabled) {
-    inputEl.disabled = !enabled;
-    isStreaming = !enabled;
+  async function loadHistory() {
+    if (isLoadingHistory) return;
+    isLoadingHistory = true;
     syncComposerState();
+    setStatus("Loading history");
+
+    try {
+      var data = await fetchJson("/api/items/" + encodeURIComponent(slug) + "/chat/history");
+      clearMessages();
+      if (!data.messages || data.messages.length === 0) {
+        showEmpty();
+        hasMessages = false;
+        setStatus("Ask the first question");
+      } else {
+        data.messages.forEach(function (message) {
+          appendMessage(message.role, message.content, message.created_at, message.id);
+        });
+        hasMessages = true;
+        setStatus("Conversation live");
+      }
+      hasLoadedHistory = true;
+      updateDot();
+    } catch (error) {
+      clearMessages();
+      showError(error.message || "Unable to load chat history.");
+      hasLoadedHistory = true;
+      hasMessages = false;
+      setStatus("Chat unavailable");
+      updateDot();
+    } finally {
+      isLoadingHistory = false;
+      syncComposerState();
+    }
+  }
+
+  async function sendMessage() {
+    var text = inputEl.value.trim();
+    if (!text || isSending || isLoadingHistory) return;
+
+    appendMessage("user", text);
+    inputEl.value = "";
+    hasMessages = true;
+    updateDot();
+    isSending = true;
+    syncComposerState();
+    setStatus("Thinking it through");
+    showThinking();
+
+    try {
+      var data = await fetchJson("/api/items/" + encodeURIComponent(slug) + "/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (data.message) {
+        appendMessage(data.message.role || "assistant", data.message.content || "", data.message.created_at, data.message.id);
+      }
+      setStatus("Conversation live");
+    } catch (error) {
+      showError(error.message || "Unable to send chat message.");
+      setStatus("Hit a snag");
+    } finally {
+      isSending = false;
+      syncComposerState();
+    }
   }
 
   inputEl.addEventListener("input", syncComposerState);
-
-  inputEl.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  inputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       sendMessage();
     }
   });
 
-  function sendMessage() {
-    var text = inputEl.value.trim();
-    if (!text || isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
-
-    appendMessage("user", text);
-    inputEl.value = "";
-    setInputEnabled(false);
-    hasMessages = true;
-    updateDot();
-    setStatus("Thinking it through");
-
-    ws.send(JSON.stringify({ type: "message", content: text }));
-  }
-
-  // ── WebSocket ──
-  function connectWs() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
-    var protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    var url = protocol + "//" + location.host + "/ws/chat/" + encodeURIComponent(slug) + "?token=" + encodeURIComponent(token);
-
-    ws = new WebSocket(url);
-
-    ws.onopen = function () {
-      // Connection established
-    };
-
-    ws.onmessage = function (event) {
-      var data;
-      try {
-        data = JSON.parse(event.data);
-      } catch (_e) {
-        return;
-      }
-
-      switch (data.type) {
-        case "history":
-          clearMessages();
-          if (!data.messages || data.messages.length === 0) {
-            showEmpty();
-            hasMessages = false;
-            setStatus("Ask the first question");
-          } else {
-            data.messages.forEach(function (m) {
-              appendMessage(m.role, m.content, m.created_at, m.id);
-            });
-            hasMessages = true;
-            setStatus("Conversation live");
-          }
-          updateDot();
-          setInputEnabled(true);
-          break;
-
-        case "thinking":
-          setStatus("Thinking it through");
-          showThinking();
-          break;
-
-        case "chunk":
-          if (streamMessageId !== data.message_id) {
-            streamMessageId = data.message_id;
-            streamBuffer = "";
-            removeThinking();
-            streamEl = document.createElement("div");
-            streamEl.className = "chat-message assistant";
-            messagesEl.appendChild(streamEl);
-          }
-          streamBuffer += data.content;
-
-          if (!renderTimer) {
-            renderTimer = setTimeout(function () {
-              renderTimer = null;
-              if (streamEl) {
-                streamEl.innerHTML = renderMarkdown(streamBuffer);
-                addCopyButtons(streamEl);
-                scrollToBottom();
-              }
-            }, 100);
-          }
-          break;
-
-        case "message":
-          if (renderTimer) {
-            clearTimeout(renderTimer);
-            renderTimer = null;
-          }
-          if (streamEl && data.role === "assistant") {
-            streamEl.innerHTML = renderMarkdown(data.content);
-            addCopyButtons(streamEl);
-            if (data.id) streamEl.dataset.messageId = data.id;
-            scrollToBottom();
-            streamEl = null;
-            streamMessageId = null;
-            streamBuffer = "";
-          } else if (data.role === "assistant") {
-            appendMessage("assistant", data.content, null, data.id);
-          }
-          hasMessages = true;
-          updateDot();
-          setInputEnabled(true);
-          setStatus("Conversation live");
-          break;
-
-        case "error":
-          removeThinking();
-          setInputEnabled(true);
-          setStatus("Hit a snag");
-          var errDiv = document.createElement("div");
-          errDiv.className = "chat-message assistant";
-          errDiv.style.borderColor = "#b84233";
-          errDiv.style.color = "#b84233";
-          errDiv.textContent = data.message || "An error occurred";
-          messagesEl.appendChild(errDiv);
-          scrollToBottom();
-          break;
-
-        case "session_reset":
-          clearMessages();
-          showEmpty();
-          streamEl = null;
-          streamMessageId = null;
-          streamBuffer = "";
-          hasMessages = false;
-          updateDot();
-          setInputEnabled(true);
-          setStatus("Fresh thread");
-          break;
-      }
-    };
-
-    ws.onclose = function () {
-      setStatus("Reconnecting soon");
-    };
-
-    ws.onerror = function () {
-      setStatus("Connection trouble");
-    };
-  }
-
-  // ── Event bindings ──
   if (sendBtn) sendBtn.addEventListener("click", sendMessage);
-
-  if (newChatBtn) {
-    newChatBtn.addEventListener("click", function () {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      setStatus("Fresh thread");
-      ws.send(JSON.stringify({ type: "new_chat" }));
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", function () {
+      hasLoadedHistory = false;
+      loadHistory();
     });
   }
 
-  // Escape to switch back to decide
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && isChatOpen) showDecide();
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && isChatOpen) showDecide();
   });
 
   syncComposerState();
