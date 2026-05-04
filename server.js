@@ -83,6 +83,31 @@ const ACTION_MAX_ATTEMPTS = Number(process.env.TURF_REVIEW_ACTION_MAX_ATTEMPTS |
 const WEB_ONLY_MODE = process.env.TURF_REVIEW_WEB_ONLY === '1';
 const DISABLE_MEDIA_JOBS = process.env.TURF_REVIEW_DISABLE_MEDIA_JOBS === '1';
 
+function resolvePublishSource(workspaceDir, sourcePath) {
+  if (!WEB_ONLY_MODE) {
+    return resolveGitTrackedSource(workspaceDir, sourcePath);
+  }
+
+  if (typeof workspaceDir !== 'string' || !workspaceDir.trim()) {
+    throw new Error('workspaceDir is required');
+  }
+  if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
+    throw new Error('sourcePath is required');
+  }
+  if (!path.isAbsolute(workspaceDir)) {
+    throw new Error('workspaceDir must be an absolute path');
+  }
+  if (!path.isAbsolute(sourcePath)) {
+    throw new Error('sourcePath must be an absolute path');
+  }
+  return {
+    gitRoot: workspaceDir,
+    workspaceDir: path.resolve(workspaceDir),
+    sourcePath: path.resolve(sourcePath),
+    relativeToGitRoot: path.relative(path.resolve(workspaceDir), path.resolve(sourcePath)),
+  };
+}
+
 // --- Middleware ---
 const session = require('express-session');
 
@@ -1019,7 +1044,7 @@ app.post('/api/publish', (req, res) => {
 
     let resolvedSource;
     try {
-      resolvedSource = resolveGitTrackedSource(workspaceDir, sourcePath);
+      resolvedSource = resolvePublishSource(workspaceDir, sourcePath);
     } catch (error) {
       return res.status(400).json({ error: error.message });
     }
