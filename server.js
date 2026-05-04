@@ -80,6 +80,8 @@ ensureDir(config.paths.audioDir);
 const db = createReviewDatabase({ dataDir });
 const ACTION_RETRY_DELAY_SECONDS = Number(process.env.TURF_REVIEW_ACTION_RETRY_SECONDS || 60);
 const ACTION_MAX_ATTEMPTS = Number(process.env.TURF_REVIEW_ACTION_MAX_ATTEMPTS || 3);
+const WEB_ONLY_MODE = process.env.TURF_REVIEW_WEB_ONLY === '1';
+const DISABLE_MEDIA_JOBS = process.env.TURF_REVIEW_DISABLE_MEDIA_JOBS === '1';
 
 // --- Middleware ---
 const session = require('express-session');
@@ -971,10 +973,14 @@ async function drainDecisionActions(limit = 5) {
   }
 }
 
-setInterval(() => {
-  void drainDecisionActions();
-}, 15000);
-scheduleActionDrain();
+if (!WEB_ONLY_MODE) {
+  setInterval(() => {
+    void drainDecisionActions();
+  }, 15000);
+  scheduleActionDrain();
+} else {
+  console.log('[decision-action] Web-only mode enabled; leaving queued actions for the Mac-side worker.');
+}
 
 // --- API Routes ---
 
@@ -1047,16 +1053,20 @@ app.post('/api/publish', (req, res) => {
     });
 
     const plainText = stripMarkdownToPlain(rendered.markdown || rendered.rendered_html);
-    if (plainText.length >= MIN_TTS_CHARS) {
-      db.prepare(`UPDATE items SET tts_status = 'generating' WHERE slug = ?`).run(slug);
-      generateReadAloudTTS(slug);
+    if (DISABLE_MEDIA_JOBS) {
+      db.prepare(`UPDATE items SET tts_status = 'skipped', context_status = 'skipped' WHERE slug = ?`).run(slug);
     } else {
-      db.prepare(`UPDATE items SET tts_status = 'skipped' WHERE slug = ?`).run(slug);
-    }
+      if (plainText.length >= MIN_TTS_CHARS) {
+        db.prepare(`UPDATE items SET tts_status = 'generating' WHERE slug = ?`).run(slug);
+        generateReadAloudTTS(slug);
+      } else {
+        db.prepare(`UPDATE items SET tts_status = 'skipped' WHERE slug = ?`).run(slug);
+      }
 
-    // Auto-generate context voice memo (AI summary → Edge TTS, async)
-    db.prepare(`UPDATE items SET context_status = 'generating' WHERE slug = ?`).run(slug);
-    generateContextMemo(slug);
+      // Auto-generate context voice memo (AI summary → Edge TTS, async)
+      db.prepare(`UPDATE items SET context_status = 'generating' WHERE slug = ?`).run(slug);
+      generateContextMemo(slug);
+    }
 
     // Broadcast live-refresh event to all connected dashboards
     broadcastSSE('new-item', { slug, title, category: normalizedCategory });
@@ -1174,9 +1184,12 @@ app.post('/api/items/:slug/decide', (req, res) => {
     status: getStoredStatusForDecision(decision),
   });
 
-  // Fire async drain (best-effort immediate delivery for system event notification)
-  void drainDecisionOutbox();
-  if (actionStatus === 'queued') scheduleActionDrain();
+  // Fire async drain (best-effort immediate delivery for system event notification) unless the app
+  // is running as a secret-light web node; Mac-side workers own downstream actions there.
+  if (!WEB_ONLY_MODE) {
+    void drainDecisionOutbox();
+    if (actionStatus === 'queued') scheduleActionDrain();
+  }
 
   res.json({
     status: getStoredStatusForDecision(decision),
@@ -1500,10 +1513,12 @@ async function drainDecisionOutbox(limit = 25) {
   }
 }
 
-// Retry unsent decisions every 15 seconds
-setInterval(() => {
-  void drainDecisionOutbox();
-}, 15000);
+// Retry unsent decisions every 15 seconds when this node has local Benji/OpenClaw access.
+if (!WEB_ONLY_MODE) {
+  setInterval(() => {
+    void drainDecisionOutbox();
+  }, 15000);
+}
 
 reconcileInterruptedAudioJobs();
 
