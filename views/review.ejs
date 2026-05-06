@@ -4,6 +4,31 @@
 <% var sidebarActions = (typeof actions !== 'undefined' && actions) ? actions.filter(function(a) { return chatActionNames.indexOf(a.toLowerCase()) === -1; }) : []; %>
 <% var actionStatus = item.action_status || item.approval_status; %>
 <% var actionMessage = item.action_message || item.approval_message; %>
+<% var requestRows = (typeof decisionRequests !== 'undefined' && decisionRequests) ? decisionRequests : []; %>
+<%
+  function proofSummary(request) {
+    if (request.last_error && ['failed', 'blocked_system', 'blocked_decision'].indexOf(request.status) !== -1) {
+      return 'Error: ' + request.last_error;
+    }
+    if (!request.proof_json) return '';
+    var proof;
+    try {
+      proof = JSON.parse(request.proof_json);
+    } catch (_err) {
+      return '';
+    }
+    if (!proof || typeof proof !== 'object') return '';
+    if (proof.task && proof.task.id) return 'Proof: OmniFocus task ' + proof.task.id;
+    if (proof.eventId) return 'Proof: Calendar event ' + proof.eventId;
+    if (proof.queueItemIds && proof.queueItemIds.length) return 'Proof: send queue ' + proof.queueItemIds.join(', ');
+    if (proof.sendAttemptIds && proof.sendAttemptIds.length) return 'Proof: sent email log ' + proof.sendAttemptIds.join(', ');
+    if (proof.resolvedByReview) return 'Proof: resolved by ' + proof.resolvedByReview;
+    if (proof.slug) return 'Proof: replacement review ' + proof.slug;
+    if (proof.summary) return 'Proof: ' + proof.summary;
+    if (proof.producedArtifact) return 'Proof: artifact recorded';
+    return '';
+  }
+%>
 <% if (!reviewChatEnabled && typeof actions !== 'undefined' && actions) { reviewChatEnabled = actions.some(function(a) { return chatActionNames.indexOf(a.toLowerCase()) !== -1; }); } %>
 <% if (reviewChatEnabled) { %>
 <link rel="stylesheet" href="/chat.css?v=<%= Date.now() %>">
@@ -45,6 +70,27 @@
       <% if (actionStatus === 'failed' || actionStatus === 'blocked') { %>
         <button type="button" class="approval-retry-btn" onclick="retryDecisionAction()">Retry</button>
       <% } %>
+    </div>
+  <% } %>
+
+  <% if (item.status !== 'pending' && requestRows.length > 0) { %>
+    <div class="feedback-display">
+      <strong>Downstream:</strong>
+      <ul class="decision-request-list">
+        <% requestRows.forEach(function(request) { %>
+          <% var proofText = proofSummary(request); %>
+          <li>
+            <span class="decision-request-status"><%= request.status %></span>
+            <span><%= request.summary %></span>
+            <% if (request.confirmation_slug) { %>
+              <a href="/review/<%= request.confirmation_slug %>">follow-up review</a>
+            <% } %>
+            <% if (proofText) { %>
+              <span class="decision-request-proof"><%= proofText %></span>
+            <% } %>
+          </li>
+        <% }); %>
+      </ul>
     </div>
   <% } %>
 

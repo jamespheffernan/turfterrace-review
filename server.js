@@ -23,6 +23,7 @@ const { createChatRouter } = require('./lib/chat/routes');
 const { createFunnelDashboardService } = require('./lib/funnel/dashboard');
 const { createOpenClawClient } = require('./lib/openclaw');
 const { renderSourceDocument, stripMarkdownToPlain } = require('./lib/reviews/render');
+const { createDecisionOrchestrator } = require('./lib/reviews/orchestrator');
 const { createReviewStatements } = require('./lib/reviews/repository');
 const { readSourceDocument, resolveGitTrackedSource } = require('./lib/reviews/source-paths');
 const {
@@ -707,6 +708,15 @@ function republishItemFromSource(item) {
 
 // --- Prepared statements ---
 const stmts = createReviewStatements(db);
+const decisionOrchestrator = createDecisionOrchestrator({
+  config,
+  db,
+  stmts,
+  openclawClient,
+  appendSessionNote,
+  seedSessionForItem,
+  broadcastSSE,
+});
 
 const funnelDashboard = createFunnelDashboardService({ reviewDb: db });
 
@@ -1001,8 +1011,10 @@ async function drainDecisionActions(limit = 5) {
 if (!WEB_ONLY_MODE) {
   setInterval(() => {
     void drainDecisionActions();
+    void decisionOrchestrator.drainDecisionRequests();
   }, 15000);
   scheduleActionDrain();
+  decisionOrchestrator.scheduleDrain();
 } else {
   console.log('[decision-action] Web-only mode enabled; leaving queued actions for the Mac-side worker.');
 }
@@ -1032,7 +1044,7 @@ app.post('/api/publish', (req, res) => {
 
     const normalizedCategory = normalizeCategory(category);
     if (!ALLOWED_CATEGORIES.has(normalizedCategory)) {
-      return res.status(400).json({ error: 'Invalid category. Allowed: kitchenlux, outreach, admin, general' });
+      return res.status(400).json({ error: `Invalid category. Allowed: ${Array.from(ALLOWED_CATEGORIES).join(', ')}` });
     }
 
     const canonicalActions = getCanonicalActions(normalizedCategory);
@@ -1075,6 +1087,9 @@ app.post('/api/publish', (req, res) => {
       workspace_dir: resolvedSource.workspaceDir,
       source_path: resolvedSource.sourcePath,
       decision_schema_version: DECISION_SCHEMA_VERSION,
+      parent_slug: null,
+      supersedes_slug: null,
+      created_by_request_id: null,
     });
 
     const plainText = stripMarkdownToPlain(rendered.markdown || rendered.rendered_html);
@@ -1099,6 +1114,7 @@ app.post('/api/publish', (req, res) => {
     const reviewBaseUrl = getReviewBaseUrl(req);
     const reviewUrl = buildReviewUrl(reviewBaseUrl, slug);
     const item = stmts.getBySlug.get(slug);
+    decisionOrchestrator.recordIntentForItem(item, onApprove || null);
 
     setImmediate(async () => {
       try {
@@ -1150,6 +1166,11 @@ app.get('/api/items/:slug', (req, res) => {
 app.post('/api/items/:slug/decide', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
+  if (item.status !== 'pending') {
+    return res.status(409).json({
+      error: `Review is already ${item.status}; use a follow-up review or retry the downstream action instead.`,
+    });
+  }
 
   const { decision, feedback } = req.body;
   if (!decision) return res.status(400).json({ error: 'decision is required' });
@@ -1158,75 +1179,44 @@ app.post('/api/items/:slug/decide', (req, res) => {
       error: `Invalid decision for ${item.category}. Allowed: ${getActions(item).join(', ')}`,
     });
   }
+  if ((decision === 'Rework' || decision === 'Edit') && !String(feedback || '').trim()) {
+    return res.status(400).json({ error: `${decision} requires feedback.` });
+  }
 
   const resolvedFeedback = typeof feedback === 'string' ? feedback : (item.feedback || null);
   const annotations = listAnnotationsForSlug(req.params.slug);
-  const actionStatus = getInitialActionStatus(decision);
   const reviewUrl = buildReviewUrl(getReviewBaseUrl(req), req.params.slug);
-  const payload = {
+  const result = decisionOrchestrator.handleDecision(item, {
     decision,
-    title: item.title,
-    slug: req.params.slug,
     feedback: resolvedFeedback,
-    taskId: item.mindwtr_task_id,
-    projectId: item.mindwtr_project_id,
-    onApprove: item.on_approve,
-    sessionKey: item.session_key || getSessionKey(item.slug),
-    workspaceDir: item.workspace_dir,
-    sourcePath: item.source_path,
     annotations,
-    actionStatus,
     reviewUrl,
-  };
-
-  // Transactional: update item + enqueue notification/action records.
-  const txDecide = db.transaction(() => {
-    stmts.decide.run({
-      slug: req.params.slug,
-      status: getStoredStatusForDecision(decision),
-      decision,
-      feedback: resolvedFeedback,
-      action_status: actionStatus,
-      action_message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
-    });
-    stmts.enqueueOutbox.run({ slug: req.params.slug, payload: JSON.stringify(payload) });
-    if (actionStatus === 'queued') {
-      stmts.enqueueAction.run({
-        slug: req.params.slug,
-        decision,
-        payload: JSON.stringify(payload),
-        max_attempts: ACTION_MAX_ATTEMPTS,
-      });
-    }
   });
-  txDecide();
-
-  // Broadcast live-refresh event for decision
-  broadcastSSE('decision', {
-    slug: req.params.slug,
-    decision,
-    title: item.title,
-    status: getStoredStatusForDecision(decision),
-  });
-
-  // Fire async drain (best-effort immediate delivery for system event notification) unless the app
-  // is running as a secret-light web node; Mac-side workers own downstream actions there.
-  if (!WEB_ONLY_MODE) {
-    void drainDecisionOutbox();
-    if (actionStatus === 'queued') scheduleActionDrain();
-  }
 
   res.json({
-    status: getStoredStatusForDecision(decision),
+    status: result.status,
     decision,
     slug: req.params.slug,
-    queued: actionStatus === 'queued',
-    processed: actionStatus !== 'queued',
-    sessionKey: payload.sessionKey,
+    queued: result.requests.some((request) => request.status === 'queued'),
+    processed: true,
+    sessionKey: item.session_key || getSessionKey(item.slug),
     action: {
-      status: actionStatus,
-      message: actionStatus === 'queued' ? `Queued ${decision} action.` : `${decision} saved.`,
+      status: result.requests.length ? 'queued' : 'succeeded',
+      message: result.requests.length
+        ? `Created ${result.requests.length} downstream request(s).`
+        : `${decision} saved.`,
     },
+    requests: result.requests.map((request) => ({
+      id: request.id,
+      kind: request.kind,
+      status: request.status,
+      summary: request.summary,
+    })),
+    followups: result.followups.map((followup) => ({
+      slug: followup.slug,
+      title: followup.title,
+      url: `/review/${followup.slug}`,
+    })),
   });
 });
 
@@ -1235,7 +1225,8 @@ app.get('/api/items/:slug/actions', (req, res) => {
   if (!item) return res.status(404).json({ error: 'Not found' });
   res.json({
     slug: req.params.slug,
-    actions: stmts.listActionsForSlug.all(req.params.slug),
+    requests: stmts.listDecisionRequestsForSlug.all(req.params.slug),
+    legacyActions: stmts.listActionsForSlug.all(req.params.slug),
   });
 });
 
@@ -1243,25 +1234,44 @@ app.post('/api/items/:slug/action/retry', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
 
-  const latestAction = stmts.getLatestActionForSlug.get(req.params.slug);
-  if (!latestAction) {
-    return res.status(404).json({ error: 'No decision action exists for this review.' });
+  const latestRequest = stmts.listDecisionRequestsForSlug.all(req.params.slug)[0];
+  if (!latestRequest) {
+    const latestAction = stmts.getLatestActionForSlug.get(req.params.slug);
+    if (!latestAction) {
+      return res.status(404).json({ error: 'No decision action exists for this review.' });
+    }
+
+    if (latestAction.status === 'running' || latestAction.status === 'queued') {
+      return res.status(409).json({ error: `Action is already ${latestAction.status}.` });
+    }
+
+    stmts.requeueAction.run({ id: latestAction.id });
+    updateActionState(req.params.slug, 'queued', `Queued ${latestAction.decision} action for retry.`);
+    scheduleActionDrain();
+    return res.json({
+      ok: true,
+      slug: req.params.slug,
+      action: {
+        id: latestAction.id,
+        status: 'queued',
+        decision: latestAction.decision,
+      },
+    });
   }
 
-  if (latestAction.status === 'running' || latestAction.status === 'queued') {
-    return res.status(409).json({ error: `Action is already ${latestAction.status}.` });
+  if (latestRequest.status === 'running' || latestRequest.status === 'queued') {
+    return res.status(409).json({ error: `Request is already ${latestRequest.status}.` });
   }
 
-  stmts.requeueAction.run({ id: latestAction.id });
-  updateActionState(req.params.slug, 'queued', `Queued ${latestAction.decision} action for retry.`);
-  scheduleActionDrain();
+  decisionOrchestrator.requeueRequest(latestRequest.id);
+  decisionOrchestrator.updateItemActionSummary(req.params.slug);
   res.json({
     ok: true,
     slug: req.params.slug,
-    action: {
-      id: latestAction.id,
+    request: {
+      id: latestRequest.id,
       status: 'queued',
-      decision: latestAction.decision,
+      kind: latestRequest.kind,
     },
   });
 });
@@ -1271,7 +1281,8 @@ app.get('/api/actions', (req, res) => {
   const limit = Math.min(Number(req.query.limit || 50) || 50, 200);
   res.json({
     status,
-    actions: stmts.listActionsByStatus.all({ status, limit }),
+    requests: stmts.listDecisionRequestsByStatus.all({ status, limit }),
+    legacyActions: stmts.listActionsByStatus.all({ status, limit }),
   });
 });
 
@@ -1488,6 +1499,7 @@ app.get('/', (req, res) => {
     items = db.prepare(`
       SELECT id, slug, title, category, status, decision, actions, feedback, mindwtr_task_id, mindwtr_project_id,
              session_key, workspace_dir, source_path, decision_schema_version,
+             parent_slug, supersedes_slug, created_by_request_id,
              action_status, action_message, approval_status, approval_message, approval_exit_code,
              LENGTH(COALESCE(NULLIF(markdown, ''), rendered_html, '')) AS content_length,
              created_at, updated_at
@@ -1513,8 +1525,9 @@ app.get('/review/:slug', (req, res) => {
   if (!item) return res.status(404).send('Not found');
   const actions = getActions(item);
   const returnTab = ['decided', 'parked'].includes(req.query.fromTab) ? req.query.fromTab : 'pending';
+  const decisionRequests = stmts.listDecisionRequestsForSlug.all(req.params.slug);
 
-  res.render('review', { item, actions, returnTab, hasChat: true });
+  res.render('review', { item, actions, returnTab, hasChat: true, decisionRequests });
 });
 
 // --- Decision outbox drain (C4: durable notifications) ---
@@ -1563,8 +1576,11 @@ const listenArgs = config.host ? [PORT, config.host] : [PORT];
 const server = app.listen(...listenArgs, () => {
   const displayHost = config.host || 'localhost';
   console.log(`Turf Review running at http://${displayHost}:${PORT}`);
-  // Drain any decisions that were queued while OpenClaw was down
-  void drainDecisionOutbox();
+  if (!WEB_ONLY_MODE) {
+    // Drain any decisions that were queued while downstream systems were down.
+    void drainDecisionOutbox();
+    void decisionOrchestrator.drainDecisionRequests();
+  }
 });
 
 server.on('error', (error) => {

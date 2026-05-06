@@ -152,6 +152,9 @@ main {
 
 .item-indicator.pending { background: var(--terracotta); }
 .item-indicator.decided { background: var(--olive); }
+.item-indicator.processed,
+.item-indicator.archived,
+.item-indicator.killed { background: var(--olive); }
 
 .item-body {
   flex: 1;
@@ -220,6 +223,12 @@ main {
   background: var(--olive-soft);
 }
 
+.badge-processed, .badge-archived, .badge-killed {
+  color: var(--olive);
+  border: 1px solid rgba(90, 114, 71, 0.25);
+  background: var(--olive-soft);
+}
+
 .badge-rejected {
   color: var(--red);
   border: 1px solid rgba(184, 58, 42, 0.25);
@@ -239,7 +248,7 @@ main {
 .back-btn {
   position: fixed;
   top: 16px;
-  left: 16px;
+  right: 16px;
   z-index: 200;
   display: inline-flex;
   align-items: center;
@@ -293,6 +302,36 @@ main {
   font-size: 0.88rem;
   color: var(--text-secondary);
   border-radius: 0 6px 6px 0;
+}
+
+.decision-request-list {
+  list-style: none;
+  padding: 8px 0 0;
+  margin: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.decision-request-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.decision-request-status {
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--olive);
+}
+
+.decision-request-proof {
+  flex-basis: 100%;
+  margin-left: 81px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
 .approval-alert {

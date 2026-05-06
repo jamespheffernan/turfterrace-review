@@ -28,6 +28,9 @@ function createTestStore() {
     workspace_dir: dataDir,
     source_path: path.join(dataDir, 'sample.md'),
     decision_schema_version: DECISION_SCHEMA_VERSION,
+    parent_slug: null,
+    supersedes_slug: null,
+    created_by_request_id: null,
   });
 
   return { db, stmts, dataDir };

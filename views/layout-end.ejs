@@ -8,6 +8,7 @@
     var es = new EventSource('/api/events');
     es.addEventListener('new-item', function() { location.reload(); });
     es.addEventListener('decision', function() { location.reload(); });
+    es.addEventListener('review-processed', function() { location.reload(); });
     es.onerror = function() {};
   })();
 
