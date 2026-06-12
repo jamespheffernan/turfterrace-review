@@ -1,0 +1,55 @@
+name: TurfReviewNative
+options:
+  bundleIdPrefix: com.jamesheffernan
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 3MVGA7QVHM
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: 5.0
+targets:
+  TurfReviewNative:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: TurfReviewNative
+        excludes:
+          - Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jamesheffernan.turfreviewnative
+        PRODUCT_MODULE_NAME: TurfReviewNative
+        PRODUCT_NAME: Turf Review
+        INFOPLIST_FILE: TurfReviewNative/Resources/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+  TurfReviewNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: TurfReviewNativeTests
+    dependencies:
+      - target: TurfReviewNative
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.jamesheffernan.turfreviewnative.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Turf Review.app/Turf Review"
+schemes:
+  TurfReviewNative:
+    build:
+      targets:
+        TurfReviewNative: all
+        TurfReviewNativeTests: [test]
+    test:
+      targets:
+        - TurfReviewNativeTests
+    run:
+      config: Debug

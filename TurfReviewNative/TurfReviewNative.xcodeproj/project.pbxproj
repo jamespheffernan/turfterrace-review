@@ -1,0 +1,530 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0CE39F568E2E163D00A732C2 /* ReviewStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */; };
+		17AB30CA261DCEC0B47467CD /* StatusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A10A25073565453AF94305 /* StatusPanel.swift */; };
+		1FB2ACA60BF45AA4402B08D5 /* AudioPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785112253584E551398818FB /* AudioPlayerBar.swift */; };
+		295A574A6E81920D75EC5369 /* TurfModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA41A6690E33423E8FBF58 /* TurfModels.swift */; };
+		2E6602AB329040AC89B172BA /* TurfReviewNativeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */; };
+		2F9B25989B6AD1797B101F56 /* TurfReviewClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663CC39BA44A38E507018F43 /* TurfReviewClient.swift */; };
+		35AFA1B1A5A1D2364252CCAB /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9971554AF514AD16A4CB45FB /* RootView.swift */; };
+		3CA56ED62FE5FAE596CC1CFF /* ReviewDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7956F02998206115AC6695FD /* ReviewDetailView.swift */; };
+		435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */; };
+		533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */; };
+		57D44A1E5AA9D90DCC15BB5E /* TurfReviewClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */; };
+		59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */; };
+		6037CA6FD5FCDF4B0655D187 /* AnnotationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */; };
+		68611A8D2833F2ED014796D4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061B2447596A08EA73EEF46A /* SettingsView.swift */; };
+		741BCAF9DDA8AB81A456C1AF /* ReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FED2F22FA4A221288F17138 /* ReviewStore.swift */; };
+		B9E2C30D4E5F678901BCDEF0 /* AudioPlaybackStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F1B29C3D4E567890ABCDEF /* AudioPlaybackStateTests.swift */; };
+		BC7D8AE9C6367952B7D8EC7E /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A501C01C0482C899B83F11CB /* QueueView.swift */; };
+		C02DEED3D01FD8886E708AB7 /* APIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A0227EE96C08902F16FF4B /* APIConfiguration.swift */; };
+		F9A83C2C607D7FC3FE75F3BF /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B39F80BA82ECE12E21856D /* DemoData.swift */; };
+		FA97582E4CF0349C786C435A /* TurfTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8D8900419225748FCD4F2F /* TurfTheme.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		88BBBAE8EBBC1EC0F888619B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C9B043B237C5D660A6B73A4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 09649FD1004AC7F21A5E20B1;
+			remoteInfo = TurfReviewNative;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		061B2447596A08EA73EEF46A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewClientTests.swift; sourceTree = "<group>"; };
+		1FED2F22FA4A221288F17138 /* ReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStore.swift; sourceTree = "<group>"; };
+		3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLDocumentView.swift; sourceTree = "<group>"; };
+		464BCAF24E3DDC38180A16D9 /* Turf Review.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Turf Review.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		53B39F80BA82ECE12E21856D /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
+		5F8D8900419225748FCD4F2F /* TurfTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfTheme.swift; sourceTree = "<group>"; };
+		63A10A25073565453AF94305 /* StatusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPanel.swift; sourceTree = "<group>"; };
+		663CC39BA44A38E507018F43 /* TurfReviewClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewClient.swift; sourceTree = "<group>"; };
+		785112253584E551398818FB /* AudioPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerBar.swift; sourceTree = "<group>"; };
+		7956F02998206115AC6695FD /* ReviewDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewDetailView.swift; sourceTree = "<group>"; };
+		79A0227EE96C08902F16FF4B /* APIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIConfiguration.swift; sourceTree = "<group>"; };
+		7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewNativeApp.swift; sourceTree = "<group>"; };
+		9971554AF514AD16A4CB45FB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A501C01C0482C899B83F11CB /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
+		A8F1B29C3D4E567890ABCDEF /* AudioPlaybackStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackStateTests.swift; sourceTree = "<group>"; };
+		BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationPanel.swift; sourceTree = "<group>"; };
+		BC02A894965559DC30FB28B4 /* TurfReviewNativeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TurfReviewNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStoreTests.swift; sourceTree = "<group>"; };
+		D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPanel.swift; sourceTree = "<group>"; };
+		E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionPanel.swift; sourceTree = "<group>"; };
+		FCFA41A6690E33423E8FBF58 /* TurfModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfModels.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		08E1E37C31EC684782010CD1 /* TurfReviewNativeTests */ = {
+			isa = PBXGroup;
+			children = (
+				A8F1B29C3D4E567890ABCDEF /* AudioPlaybackStateTests.swift */,
+				BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */,
+				17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */,
+			);
+			path = TurfReviewNativeTests;
+			sourceTree = "<group>";
+		};
+		0CC0A635886D8EE4A49CBFE6 /* State */ = {
+			isa = PBXGroup;
+			children = (
+				1FED2F22FA4A221288F17138 /* ReviewStore.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+		338A733481F7D4F0FF4F6BFD /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */,
+				D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */,
+				E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */,
+				A501C01C0482C899B83F11CB /* QueueView.swift */,
+				7956F02998206115AC6695FD /* ReviewDetailView.swift */,
+				9971554AF514AD16A4CB45FB /* RootView.swift */,
+				061B2447596A08EA73EEF46A /* SettingsView.swift */,
+				63A10A25073565453AF94305 /* StatusPanel.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		5936135A86974BE63E43715B /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				79A0227EE96C08902F16FF4B /* APIConfiguration.swift */,
+				53B39F80BA82ECE12E21856D /* DemoData.swift */,
+				663CC39BA44A38E507018F43 /* TurfReviewClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AB919E6DEA40902F3D9E4F44 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				785112253584E551398818FB /* AudioPlayerBar.swift */,
+				3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */,
+				5F8D8900419225748FCD4F2F /* TurfTheme.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		BF958CEC287A8CFE2D92B81C /* App */ = {
+			isa = PBXGroup;
+			children = (
+				7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C377F872662FF3F204F11966 /* TurfReviewNative */ = {
+			isa = PBXGroup;
+			children = (
+				BF958CEC287A8CFE2D92B81C /* App */,
+				CBABD7404E92C347E6B9FE2B /* Models */,
+				5936135A86974BE63E43715B /* Services */,
+				0CC0A635886D8EE4A49CBFE6 /* State */,
+				AB919E6DEA40902F3D9E4F44 /* Support */,
+				338A733481F7D4F0FF4F6BFD /* Views */,
+			);
+			path = TurfReviewNative;
+			sourceTree = "<group>";
+		};
+		C9BBC158BED4E73E883D8655 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				464BCAF24E3DDC38180A16D9 /* Turf Review.app */,
+				BC02A894965559DC30FB28B4 /* TurfReviewNativeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CBABD7404E92C347E6B9FE2B /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FCFA41A6690E33423E8FBF58 /* TurfModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		D5DE84333F71015564558484 = {
+			isa = PBXGroup;
+			children = (
+				C377F872662FF3F204F11966 /* TurfReviewNative */,
+				08E1E37C31EC684782010CD1 /* TurfReviewNativeTests */,
+				C9BBC158BED4E73E883D8655 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		09649FD1004AC7F21A5E20B1 /* TurfReviewNative */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C2263EE8130B76C7C93BDED5 /* Build configuration list for PBXNativeTarget "TurfReviewNative" */;
+			buildPhases = (
+				55AD4EA71DA0E39329C9A8F5 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TurfReviewNative;
+			packageProductDependencies = (
+			);
+			productName = TurfReviewNative;
+			productReference = 464BCAF24E3DDC38180A16D9 /* Turf Review.app */;
+			productType = "com.apple.product-type.application";
+		};
+		FADAB8435769FB045E73837C /* TurfReviewNativeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8C015AE899D6B8BFA7322E96 /* Build configuration list for PBXNativeTarget "TurfReviewNativeTests" */;
+			buildPhases = (
+				98B974D7B1317178B35EB400 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FD1455D917F601DFE1E61BAE /* PBXTargetDependency */,
+			);
+			name = TurfReviewNativeTests;
+			packageProductDependencies = (
+			);
+			productName = TurfReviewNativeTests;
+			productReference = BC02A894965559DC30FB28B4 /* TurfReviewNativeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8C9B043B237C5D660A6B73A4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					09649FD1004AC7F21A5E20B1 = {
+						ProvisioningStyle = Automatic;
+					};
+					FADAB8435769FB045E73837C = {
+						DevelopmentTeam = 3MVGA7QVHM;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = A265D0175467998763632DFD /* Build configuration list for PBXProject "TurfReviewNative" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D5DE84333F71015564558484;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C9BBC158BED4E73E883D8655 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				09649FD1004AC7F21A5E20B1 /* TurfReviewNative */,
+				FADAB8435769FB045E73837C /* TurfReviewNativeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		55AD4EA71DA0E39329C9A8F5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C02DEED3D01FD8886E708AB7 /* APIConfiguration.swift in Sources */,
+				6037CA6FD5FCDF4B0655D187 /* AnnotationPanel.swift in Sources */,
+				1FB2ACA60BF45AA4402B08D5 /* AudioPlayerBar.swift in Sources */,
+				59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */,
+				435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */,
+				F9A83C2C607D7FC3FE75F3BF /* DemoData.swift in Sources */,
+				533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */,
+				BC7D8AE9C6367952B7D8EC7E /* QueueView.swift in Sources */,
+				3CA56ED62FE5FAE596CC1CFF /* ReviewDetailView.swift in Sources */,
+				741BCAF9DDA8AB81A456C1AF /* ReviewStore.swift in Sources */,
+				35AFA1B1A5A1D2364252CCAB /* RootView.swift in Sources */,
+				68611A8D2833F2ED014796D4 /* SettingsView.swift in Sources */,
+				17AB30CA261DCEC0B47467CD /* StatusPanel.swift in Sources */,
+				295A574A6E81920D75EC5369 /* TurfModels.swift in Sources */,
+				2F9B25989B6AD1797B101F56 /* TurfReviewClient.swift in Sources */,
+				2E6602AB329040AC89B172BA /* TurfReviewNativeApp.swift in Sources */,
+				FA97582E4CF0349C786C435A /* TurfTheme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		98B974D7B1317178B35EB400 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9E2C30D4E5F678901BCDEF0 /* AudioPlaybackStateTests.swift in Sources */,
+				0CE39F568E2E163D00A732C2 /* ReviewStoreTests.swift in Sources */,
+				57D44A1E5AA9D90DCC15BB5E /* TurfReviewClientTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FD1455D917F601DFE1E61BAE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 09649FD1004AC7F21A5E20B1 /* TurfReviewNative */;
+			targetProxy = 88BBBAE8EBBC1EC0F888619B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0905EA18E615B3000A96C578 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewnative.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Turf Review.app/Turf Review";
+			};
+			name = Debug;
+		};
+		77D95036726842F407E81BDE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = DVGNA22Q9C;
+				INFOPLIST_FILE = TurfReviewNative/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewnative;
+				PRODUCT_MODULE_NAME = TurfReviewNative;
+				PRODUCT_NAME = "Turf Review";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		87F95DD20AB8E2AD21526940 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3MVGA7QVHM;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		AFE3FB133D2BC833399D3067 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3MVGA7QVHM;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C417DE5F6B38397F2E00B06E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewnative.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Turf Review.app/Turf Review";
+			};
+			name = Release;
+		};
+		FA8317269E24BF98E4D89FA2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = DVGNA22Q9C;
+				INFOPLIST_FILE = TurfReviewNative/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewnative;
+				PRODUCT_MODULE_NAME = TurfReviewNative;
+				PRODUCT_NAME = "Turf Review";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8C015AE899D6B8BFA7322E96 /* Build configuration list for PBXNativeTarget "TurfReviewNativeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0905EA18E615B3000A96C578 /* Debug */,
+				C417DE5F6B38397F2E00B06E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A265D0175467998763632DFD /* Build configuration list for PBXProject "TurfReviewNative" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AFE3FB133D2BC833399D3067 /* Debug */,
+				87F95DD20AB8E2AD21526940 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C2263EE8130B76C7C93BDED5 /* Build configuration list for PBXNativeTarget "TurfReviewNative" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				77D95036726842F407E81BDE /* Debug */,
+				FA8317269E24BF98E4D89FA2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8C9B043B237C5D660A6B73A4 /* Project object */;
+}
