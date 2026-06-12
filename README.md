@@ -50,6 +50,6 @@ node scripts/migrate-pending-items.js --config scripts/pending-item-migration.js
 curl -u "$REVIEW_USER:$REVIEW_PASSWORD" /api/items/:slug/actions
 ```
 
-For isolated local smoke runs, set `TURF_REVIEW_DATA_DIR` to a temporary directory. Set `OPENCLAW_TOKEN` for review-aware chat and decision execution.
+For isolated local smoke runs, set `TURF_REVIEW_DATA_DIR` to a temporary directory. Set `OPENCLAW_TOKEN` or `OPENCLAW_GATEWAY_TOKEN` for review-aware chat and decision execution.
 
 Set `TURF_REVIEW_WEB_ONLY=1` only when the process should not execute downstream actions or drain Telegram notifications.
