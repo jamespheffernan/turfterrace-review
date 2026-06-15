@@ -82,3 +82,32 @@ test('OpenClaw completion request uses review session key header', async (t) => 
   assert.equal(body.stream, false);
   assert.deepEqual(body.messages, [{ role: 'user', content: 'Hello' }]);
 });
+
+test('OpenClaw completion fetch errors include session and cause', async (t) => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => {
+    const error = new TypeError('fetch failed');
+    error.cause = new Error('connect ECONNREFUSED 127.0.0.1:18789');
+    throw error;
+  };
+
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const client = createOpenClawClient({
+    token: 'test-token',
+    baseUrl: 'http://127.0.0.1:18789/v1',
+    agentId: 'main',
+    model: 'openclaw/main',
+  });
+
+  await assert.rejects(
+    client.complete({
+      sessionKey: 'review:test-slug',
+      messages: [{ role: 'user', content: 'Hello' }],
+    }),
+    /OpenClaw completion session=review:test-slug fetch failed.*connect ECONNREFUSED/
+  );
+});

@@ -9,3 +9,6 @@ tts-cache/
 *.xcuserstate
 xcuserdata/
 DerivedData/
+review-packets/
+docs/audits/
+ops/

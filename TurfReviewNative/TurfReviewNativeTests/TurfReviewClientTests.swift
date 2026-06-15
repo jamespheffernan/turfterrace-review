@@ -265,6 +265,59 @@ final class TurfReviewClientTests: XCTestCase {
     XCTAssertTrue(response.legacyActions.isEmpty)
   }
 
+  func testReviewTargetsResponseDecodesTargetRows() async throws {
+    let client = makeClient()
+    MockURLProtocol.requestHandler = { request in
+      XCTAssertEqual(request.url?.path, "/api/items/native-smoke/targets")
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      return (response, Data(#"{"slug":"native-smoke","targets":[{"id":1,"key":"task:approval:001:abc","label":"Approve candidate","sourceType":"task_list","anchorRef":"target:task:approval:001:abc","ordinal":1,"verdict":"unset","feedback":null,"decided":false,"decidedAt":null,"updatedAt":"2026-06-12 15:00:00"}],"summary":{"total":1,"approved":0,"rejected":0,"undecided":1,"decided":0,"complete":false}}"#.utf8))
+    }
+
+    let response = try await client.getReviewTargets(slug: "native-smoke")
+
+    XCTAssertEqual(response.slug, "native-smoke")
+    XCTAssertEqual(response.targets.first?.key, "task:approval:001:abc")
+    XCTAssertEqual(response.targets.first?.label, "Approve candidate")
+    XCTAssertTrue(response.targets.first?.isUnset == true)
+    XCTAssertEqual(response.summary.undecided, 1)
+    XCTAssertFalse(response.summary.complete)
+  }
+
+  func testUpdateReviewTargetSendsVerdictAndFeedback() async throws {
+    let client = makeClient()
+    MockURLProtocol.requestHandler = { request in
+      XCTAssertTrue(request.url?.absoluteString.hasSuffix("/api/items/native-smoke/targets/task%3Aapproval%3A001%3Aabc") == true)
+      XCTAssertEqual(request.httpMethod, "PATCH")
+      let body = try Self.requestBodyData(from: request)
+      let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+      XCTAssertEqual(json["verdict"] as? String, "rejected")
+      XCTAssertEqual(json["feedback"] as? String, "Needs source.")
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+      )!
+      return (response, Data(#"{"slug":"native-smoke","target":{"id":1,"key":"task:approval:001:abc","label":"Approve candidate","sourceType":"task_list","anchorRef":"target:task:approval:001:abc","ordinal":1,"verdict":"rejected","feedback":"Needs source.","decided":true,"decidedAt":"2026-06-12 15:00:00","updatedAt":"2026-06-12 15:00:00"},"summary":{"total":1,"approved":0,"rejected":1,"undecided":0,"decided":1,"complete":true}}"#.utf8))
+    }
+
+    let response = try await client.updateReviewTarget(
+      slug: "native-smoke",
+      targetKey: "task:approval:001:abc",
+      verdict: "rejected",
+      feedback: " Needs source. "
+    )
+
+    XCTAssertEqual(response.target?.verdict, "rejected")
+    XCTAssertEqual(response.target?.feedback, "Needs source.")
+    XCTAssertTrue(response.summary.complete)
+  }
+
   func testActionsResponseDecodesLegacyActionsSnakeCase() async throws {
     let client = makeClient()
     MockURLProtocol.requestHandler = { request in

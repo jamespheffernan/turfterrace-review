@@ -1,7 +1,8 @@
 #!/bin/bash
 # Publish a git-tracked markdown file to Turf Review for Jimmy to review.
 # Turf Review derives actions from category and requires workspaceDir/sourcePath.
-# Usage: publish-review.sh <file.md> "Title" [category] [--task ID] [--project ID]
+# Use task-list items or approval/checklist sections for native per-item yes/no.
+# Usage: publish-review.sh <file.md> "Title" [category] [--task ID] [--project ID] [--origin-session KEY]
 
 set -e
 
@@ -15,6 +16,7 @@ CATEGORY="general"
 TASK_ID=""
 PROJECT_ID=""
 ACTIONS=""
+ORIGIN_SESSION_KEY="${TURF_REVIEW_ORIGIN_SESSION_KEY:-}"
 ALLOWED_CATEGORIES=("general" "admin" "outreach" "kitchenlux")
 
 # Parse args
@@ -23,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     --task) TASK_ID="$2"; shift 2 ;;
     --project) PROJECT_ID="$2"; shift 2 ;;
     --actions) ACTIONS="$2"; shift 2 ;;
+    --origin-session) ORIGIN_SESSION_KEY="$2"; shift 2 ;;
     *)
       if [[ -z "$FILE" ]]; then FILE="$1"
       elif [[ -z "$TITLE" ]]; then TITLE="$1"
@@ -33,7 +36,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$FILE" || -z "$TITLE" ]]; then
-  echo "Usage: publish-review.sh <file.md> \"Title\" [category] [--task ID] [--project ID]"
+  echo "Usage: publish-review.sh <file.md> \"Title\" [category] [--task ID] [--project ID] [--origin-session KEY]"
   exit 1
 fi
 
@@ -85,11 +88,13 @@ MARKDOWN=$(cat "$FILE" | python3 -c "import sys,json; print(json.dumps(sys.stdin
 TITLE_JSON=$(echo "$TITLE" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))")
 WORKSPACE_JSON=$(echo "$WORKSPACE_DIR" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))")
 SOURCE_JSON=$(echo "$SOURCE_PATH" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))")
+ORIGIN_SESSION_JSON=$(echo "$ORIGIN_SESSION_KEY" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))")
 
 # Build JSON payload
 PAYLOAD="{\"title\": $TITLE_JSON, \"markdown\": $MARKDOWN, \"category\": \"$CATEGORY\", \"workspaceDir\": $WORKSPACE_JSON, \"sourcePath\": $SOURCE_JSON"
 [[ -n "$TASK_ID" ]] && PAYLOAD="$PAYLOAD, \"taskId\": \"$TASK_ID\""
 [[ -n "$PROJECT_ID" ]] && PAYLOAD="$PAYLOAD, \"projectId\": \"$PROJECT_ID\""
+[[ -n "$ORIGIN_SESSION_KEY" ]] && PAYLOAD="$PAYLOAD, \"originSessionKey\": $ORIGIN_SESSION_JSON"
 PAYLOAD="$PAYLOAD}"
 
 RESPONSE=$(curl -s -X POST "$TURF_REVIEW_URL/api/publish" \

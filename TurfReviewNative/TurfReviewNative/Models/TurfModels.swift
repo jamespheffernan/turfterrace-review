@@ -109,6 +109,13 @@ struct ReviewItem: Codable, Hashable, Identifiable {
     return Self.canonicalActions(for: category)
   }
 
+  var archiveAction: String? {
+    let noActionDecisions = ["Noted", "No further action", "Park"]
+    return noActionDecisions.first { decision in
+      allowedActions.contains { Self.normalizedToken($0) == Self.normalizedToken(decision) }
+    }
+  }
+
   var usesCanonicalRouting: Bool {
     (decisionSchemaVersion ?? 1) >= 3
       || sessionKey?.nilIfBlank != nil
@@ -230,6 +237,7 @@ enum ReviewDisplayText {
     label(
       value,
       knownLabels: [
+        "agent build": "Agent Build",
         "agent followup": "Agent Follow-Up",
         "agent rework": "Agent Rework",
         "create calendar event": "Calendar Event",
@@ -323,6 +331,100 @@ struct ReviewAnnotation: Codable, Hashable, Identifiable {
     self.imageMime = imageMime
     self.createdAt = createdAt
   }
+}
+
+struct ReviewTarget: Codable, Hashable, Identifiable {
+  let databaseID: Int?
+  let key: String
+  let label: String
+  let sourceType: String?
+  let anchorRef: String?
+  let ordinal: Int
+  let verdict: String
+  let feedback: String?
+  let decided: Bool
+  let decidedAt: String?
+  let updatedAt: String?
+
+  var id: String { key }
+
+  enum CodingKeys: String, CodingKey {
+    case databaseID = "id"
+    case key
+    case label
+    case sourceType
+    case anchorRef
+    case ordinal
+    case verdict
+    case feedback
+    case decided
+    case decidedAt
+    case updatedAt
+  }
+
+  init(
+    databaseID: Int? = nil,
+    key: String,
+    label: String,
+    sourceType: String? = nil,
+    anchorRef: String? = nil,
+    ordinal: Int,
+    verdict: String = "unset",
+    feedback: String? = nil,
+    decided: Bool? = nil,
+    decidedAt: String? = nil,
+    updatedAt: String? = nil
+  ) {
+    self.databaseID = databaseID
+    self.key = key
+    self.label = label
+    self.sourceType = sourceType
+    self.anchorRef = anchorRef
+    self.ordinal = ordinal
+    self.verdict = verdict
+    self.feedback = feedback
+    self.decided = decided ?? (verdict.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unset")
+    self.decidedAt = decidedAt
+    self.updatedAt = updatedAt
+  }
+
+  var normalizedVerdict: String {
+    verdict.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  var isApproved: Bool { normalizedVerdict == "approved" }
+  var isRejected: Bool { normalizedVerdict == "rejected" }
+  var isUnset: Bool { normalizedVerdict == "unset" || normalizedVerdict.isEmpty }
+}
+
+struct ReviewTargetSummary: Codable, Hashable {
+  let total: Int
+  let approved: Int
+  let rejected: Int
+  let undecided: Int
+  let decided: Int
+  let complete: Bool
+
+  static let empty = ReviewTargetSummary(
+    total: 0,
+    approved: 0,
+    rejected: 0,
+    undecided: 0,
+    decided: 0,
+    complete: true
+  )
+}
+
+struct ReviewTargetsResponse: Codable, Hashable {
+  let slug: String
+  let targets: [ReviewTarget]
+  let summary: ReviewTargetSummary
+}
+
+struct ReviewTargetJudgmentResponse: Codable, Hashable {
+  let slug: String
+  let target: ReviewTarget?
+  let summary: ReviewTargetSummary
 }
 
 struct DecisionRequest: Codable, Hashable, Identifiable {

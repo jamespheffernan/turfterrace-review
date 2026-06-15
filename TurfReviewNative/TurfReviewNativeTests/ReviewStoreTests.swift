@@ -78,6 +78,7 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(ReviewDisplayText.statusLabel("blocked_decision"), "Blocked Decision")
     XCTAssertEqual(ReviewDisplayText.statusLabel("blocked_system"), "Blocked System")
     XCTAssertEqual(ReviewDisplayText.statusLabel(" waiting_external "), "Waiting External")
+    XCTAssertEqual(ReviewDisplayText.kindLabel("agent_build"), "Agent Build")
     XCTAssertEqual(ReviewDisplayText.kindLabel("agent_followup"), "Agent Follow-Up")
     XCTAssertEqual(ReviewDisplayText.kindLabel("create_omnifocus_task"), "OmniFocus Task")
     XCTAssertEqual(ReviewDisplayText.actionLabel("no further action"), "No Further Action")
@@ -643,6 +644,207 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertFalse(store.detailLoading)
   }
 
+  func testDetailLoadsReviewTargetsAndSummary() async {
+    let pending = Fixture.item(slug: "target-review", title: "Target review", status: "pending")
+    let targets = [
+      Fixture.target(key: "target-a", label: "Approve venue list"),
+      Fixture.target(key: "target-b", label: "Reject unverified supplier", verdict: "approved"),
+    ]
+    let service = MockReviewService(items: [pending])
+    service.targetResponses["target-review"] = ReviewTargetsResponse(
+      slug: "target-review",
+      targets: targets,
+      summary: ReviewStoreSummaryFactory.summary(for: targets)
+    )
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+
+    await store.refresh()
+
+    XCTAssertEqual(store.reviewTargets.map(\.key), ["target-a", "target-b"])
+    XCTAssertEqual(store.reviewTargetSummary.total, 2)
+    XCTAssertEqual(store.reviewTargetSummary.approved, 1)
+    XCTAssertEqual(store.reviewTargetSummary.undecided, 1)
+    XCTAssertFalse(store.reviewTargetSummary.complete)
+  }
+
+  func testUpdateReviewTargetUpdatesRowAndSummary() async {
+    let pending = Fixture.item(slug: "target-update", title: "Target update", status: "pending")
+    let target = Fixture.target(key: "target-update-a", label: "Approve send list")
+    let service = MockReviewService(items: [pending])
+    service.targetResponses["target-update"] = ReviewTargetsResponse(
+      slug: "target-update",
+      targets: [target],
+      summary: ReviewStoreSummaryFactory.summary(for: [target])
+    )
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await store.refresh()
+
+    let didSave = await store.updateReviewTarget(target, verdict: "rejected", feedback: "Missing source.")
+
+    XCTAssertTrue(didSave)
+    XCTAssertEqual(service.updateTargetCalls.map(\.slug), ["target-update"])
+    XCTAssertEqual(service.updateTargetCalls.map(\.targetKey), ["target-update-a"])
+    XCTAssertEqual(service.updateTargetCalls.map(\.verdict), ["rejected"])
+    XCTAssertEqual(store.reviewTargets.first?.verdict, "rejected")
+    XCTAssertEqual(store.reviewTargets.first?.feedback, "Missing source.")
+    XCTAssertEqual(store.reviewTargetSummary.rejected, 1)
+    XCTAssertTrue(store.reviewTargetSummary.complete)
+  }
+
+  func testSlowReviewTargetUpdateDoesNotMutateNewerSelection() async {
+    let slow = Fixture.item(slug: "slow-target", title: "Slow target", status: "pending")
+    let fast = Fixture.item(slug: "fast-target", title: "Fast target", status: "pending")
+    let slowTarget = Fixture.target(key: "slow-target-a", label: "Approve slow list")
+    let fastTarget = Fixture.target(key: "fast-target-a", label: "Approve fast list")
+    let service = MockReviewService(items: [slow, fast])
+    service.targetResponses["slow-target"] = ReviewTargetsResponse(
+      slug: "slow-target",
+      targets: [slowTarget],
+      summary: ReviewStoreSummaryFactory.summary(for: [slowTarget])
+    )
+    service.targetResponses["fast-target"] = ReviewTargetsResponse(
+      slug: "fast-target",
+      targets: [fastTarget],
+      summary: ReviewStoreSummaryFactory.summary(for: [fastTarget])
+    )
+    service.delayedUpdateTargetKey = "slow-target-a"
+    let slowUpdateStarted = expectation(description: "slow target update started")
+    service.delayedUpdateTargetStarted = {
+      slowUpdateStarted.fulfill()
+    }
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+
+    await store.loadDetail(slug: "slow-target")
+    let slowTask = Task {
+      await store.updateReviewTarget(slowTarget, verdict: "approved")
+    }
+    await fulfillment(of: [slowUpdateStarted], timeout: 1)
+
+    await store.loadDetail(slug: "fast-target")
+    service.releaseDelayedUpdateTarget()
+    let didSave = await slowTask.value
+
+    XCTAssertTrue(didSave)
+    XCTAssertEqual(service.updateTargetCalls.map(\.slug), ["slow-target"])
+    XCTAssertEqual(store.selectedSlug, "fast-target")
+    XCTAssertEqual(store.selectedItem?.title, "Fast target")
+    XCTAssertEqual(store.reviewTargets.map(\.key), ["fast-target-a"])
+    XCTAssertTrue(store.reviewTargets.first?.isUnset == true)
+  }
+
+  func testReviewTargetUpdatingStateIsScopedBySlug() async {
+    let slow = Fixture.item(slug: "same-key-slow", title: "Same key slow", status: "pending")
+    let fast = Fixture.item(slug: "same-key-fast", title: "Same key fast", status: "pending")
+    let sharedSlowTarget = Fixture.target(key: "shared-target-key", label: "Approve shared label")
+    let sharedFastTarget = Fixture.target(key: "shared-target-key", label: "Approve shared label")
+    let service = MockReviewService(items: [slow, fast])
+    service.targetResponses["same-key-slow"] = ReviewTargetsResponse(
+      slug: "same-key-slow",
+      targets: [sharedSlowTarget],
+      summary: ReviewStoreSummaryFactory.summary(for: [sharedSlowTarget])
+    )
+    service.targetResponses["same-key-fast"] = ReviewTargetsResponse(
+      slug: "same-key-fast",
+      targets: [sharedFastTarget],
+      summary: ReviewStoreSummaryFactory.summary(for: [sharedFastTarget])
+    )
+    service.delayedUpdateTargetKey = "shared-target-key"
+    let slowUpdateStarted = expectation(description: "same-key slow target update started")
+    service.delayedUpdateTargetStarted = {
+      slowUpdateStarted.fulfill()
+    }
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+
+    await store.loadDetail(slug: "same-key-slow")
+    let slowTask = Task {
+      await store.updateReviewTarget(sharedSlowTarget, verdict: "approved")
+    }
+    await fulfillment(of: [slowUpdateStarted], timeout: 1)
+
+    service.delayedUpdateTargetKey = nil
+    await store.loadDetail(slug: "same-key-fast")
+    let didSaveFastTarget = await store.updateReviewTarget(sharedFastTarget, verdict: "rejected", feedback: "Fast rejected.")
+
+    XCTAssertTrue(didSaveFastTarget)
+    XCTAssertEqual(service.updateTargetCalls.map(\.slug), ["same-key-slow", "same-key-fast"])
+    XCTAssertEqual(store.selectedSlug, "same-key-fast")
+    XCTAssertEqual(store.reviewTargets.first?.verdict, "rejected")
+
+    service.releaseDelayedUpdateTarget()
+    _ = await slowTask.value
+
+    XCTAssertEqual(store.selectedSlug, "same-key-fast")
+    XCTAssertEqual(store.reviewTargets.first?.verdict, "rejected")
+  }
+
+  func testConfigurationChangeClearsInFlightReviewTargetGateForSameSlug() async {
+    let old = Fixture.item(slug: "shared-target", title: "Old target server", status: "pending")
+    let new = Fixture.item(slug: "shared-target", title: "New target server", status: "pending")
+    let target = Fixture.target(key: "shared-target-a", label: "Approve shared list")
+    let oldService = MockReviewService(items: [old])
+    let newService = MockReviewService(items: [new])
+    oldService.targetResponses["shared-target"] = ReviewTargetsResponse(
+      slug: "shared-target",
+      targets: [target],
+      summary: ReviewStoreSummaryFactory.summary(for: [target])
+    )
+    newService.targetResponses["shared-target"] = ReviewTargetsResponse(
+      slug: "shared-target",
+      targets: [target],
+      summary: ReviewStoreSummaryFactory.summary(for: [target])
+    )
+    oldService.delayedUpdateTargetKey = "shared-target-a"
+    let slowUpdateStarted = expectation(description: "old target update started before configuration change")
+    oldService.delayedUpdateTargetStarted = {
+      slowUpdateStarted.fulfill()
+    }
+    let oldConfiguration = APIConfiguration.test(serverHost: "old-server.local", useDemoOnFailure: false)
+    let newConfiguration = APIConfiguration.test(serverHost: "new-server.local", useDemoOnFailure: false)
+    let store = ReviewStore(
+      configuration: oldConfiguration,
+      clientFactory: { configuration in
+        configuration.serverURL.host == "new-server.local" ? newService : oldService
+      }
+    )
+    defer { Self.clearSavedConfiguration() }
+    await store.refresh()
+
+    let oldTask = Task {
+      await store.updateReviewTarget(target, verdict: "approved")
+    }
+    await fulfillment(of: [slowUpdateStarted], timeout: 1)
+    await store.saveConfiguration(newConfiguration)
+
+    let didSaveNewTarget = await store.updateReviewTarget(target, verdict: "rejected", feedback: "New server rejected.")
+
+    XCTAssertTrue(didSaveNewTarget)
+    XCTAssertEqual(newService.updateTargetCalls.map(\.targetKey), ["shared-target-a"])
+    XCTAssertEqual(store.selectedSlug, "shared-target")
+    XCTAssertEqual(store.selectedItem?.title, "New target server")
+    XCTAssertEqual(store.reviewTargets.first?.verdict, "rejected")
+    XCTAssertEqual(store.reviewTargets.first?.feedback, "New server rejected.")
+
+    oldService.releaseDelayedUpdateTarget()
+    _ = await oldTask.value
+
+    XCTAssertEqual(oldService.updateTargetCalls.map(\.targetKey), ["shared-target-a"])
+    XCTAssertEqual(newService.updateTargetCalls.map(\.verdict), ["rejected"])
+    XCTAssertEqual(store.selectedItem?.title, "New target server")
+    XCTAssertEqual(store.reviewTargets.first?.verdict, "rejected")
+  }
+
   func testFailedDetailSelectionClearsStaleDetail() async {
     let old = Fixture.item(slug: "old", title: "Old item", status: "pending", updatedAt: "2026-06-11 10:00:00")
     let broken = Fixture.item(slug: "broken", title: "Broken item", status: "pending", updatedAt: "2026-06-11 09:00:00")
@@ -771,6 +973,31 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.chatMessages.map(\.content), ["History for partial-detail"])
     XCTAssertEqual(store.bannerMessage, "Some detail sections could not load: Annotations unavailable; Proof unavailable")
     XCTAssertFalse(store.detailLoading)
+  }
+
+  func testReviewTargetReloadFailureKeepsRowsAndShowsTargetError() async {
+    let pending = Fixture.item(slug: "target-reload", title: "Target reload", status: "pending")
+    let target = Fixture.target(key: "target-a", label: "Approve shortlist")
+    let service = MockReviewService(items: [pending])
+    service.targetResponses["target-reload"] = ReviewTargetsResponse(
+      slug: "target-reload",
+      targets: [target],
+      summary: ReviewStoreSummaryFactory.summary(for: [target])
+    )
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await store.refresh()
+
+    XCTAssertEqual(store.reviewTargets.map(\.label), ["Approve shortlist"])
+    service.targetErrors["target-reload"] = TestError("Review targets unavailable")
+    await store.loadDetail(slug: "target-reload")
+
+    XCTAssertEqual(store.selectedSlug, "target-reload")
+    XCTAssertEqual(store.reviewTargets.map(\.label), ["Approve shortlist"])
+    XCTAssertEqual(store.reviewTargetLoadError, "Review targets unavailable")
+    XCTAssertEqual(store.bannerMessage, "Some detail sections could not load: Review targets unavailable")
   }
 
   func testAnnotationReloadFailureKeepsExistingSameReviewAnnotations() async {
@@ -2155,7 +2382,7 @@ final class ReviewStoreTests: XCTestCase {
     await firstTask.value
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
   }
 
@@ -2330,7 +2557,7 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.chatMessages.map(\.content), ["History for explicit-chat-b"])
   }
 
-  func testSubmitDecisionMovesToDecidedAndKeepsSuccessBanner() async {
+  func testSubmitDecisionStaysOnPendingAndKeepsSuccessBanner() async {
     let pending = Fixture.item(slug: "ship", title: "Ship item", status: "pending")
     let service = MockReviewService(items: [pending])
     let store = ReviewStore(
@@ -2343,13 +2570,13 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
-    XCTAssertEqual(service.getItemCalls["ship"], 1)
-    XCTAssertEqual(service.chatHistoryCalls["ship"], 1)
+    XCTAssertEqual(service.getItemCalls["ship"] ?? 0, 0)
+    XCTAssertEqual(service.chatHistoryCalls["ship"] ?? 0, 0)
   }
 
   func testWrongSlugDecisionResponseDoesNotMoveReviewOutOfPending() async {
@@ -2443,14 +2670,14 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-no-refresh")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
     XCTAssertEqual(store.selectedItem?.feedback, "Ship it.")
     XCTAssertEqual(store.selectedItem?.actionStatus, "succeeded")
     XCTAssertEqual(store.selectedItem?.actionMessage, "Execute saved.")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-no-refresh"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertTrue(store.annotations.isEmpty)
     XCTAssertTrue(store.decisionRequests.isEmpty)
     XCTAssertTrue(store.chatMessages.isEmpty)
@@ -2473,12 +2700,12 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-stale-refresh")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
     XCTAssertEqual(store.selectedItem?.feedback, "Ship it.")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-stale-refresh"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
   }
 
@@ -2497,12 +2724,10 @@ final class ReviewStoreTests: XCTestCase {
     await store.refresh()
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
-    XCTAssertEqual(store.selectedSlug, "ship-stale-manual-refresh")
-    XCTAssertEqual(store.selectedItem?.status, "processed")
-    XCTAssertEqual(store.selectedItem?.decision, "Execute")
-    XCTAssertEqual(store.selectedItem?.feedback, "Ship it.")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-stale-manual-refresh"])
+    XCTAssertEqual(store.selectedTab, .pending)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
   }
 
   func testManualRefreshKeepsAcceptedDecisionWhenServerStillDropsItem() async {
@@ -2520,11 +2745,10 @@ final class ReviewStoreTests: XCTestCase {
     await store.refresh()
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
-    XCTAssertEqual(store.selectedSlug, "ship-dropped-manual-refresh")
-    XCTAssertEqual(store.selectedItem?.status, "processed")
-    XCTAssertEqual(store.selectedItem?.decision, "Execute")
-    XCTAssertEqual(Set(store.visibleItems.map(\.slug)), Set(["ship-dropped-manual-refresh", "other-manual-decided"]))
+    XCTAssertEqual(store.selectedTab, .pending)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
   }
 
   func testManualRefreshFailureKeepsAcceptedDecisionInsteadOfDemoFallback() async {
@@ -2541,12 +2765,12 @@ final class ReviewStoreTests: XCTestCase {
     await store.refresh()
 
     XCTAssertFalse(store.isUsingDemoData)
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-outage-after-accept")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
     XCTAssertEqual(store.selectedItem?.feedback, "Ship it.")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-outage-after-accept"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Server unavailable")
   }
 
@@ -2576,7 +2800,7 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-with-request")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.actionStatus, "queued")
@@ -2623,11 +2847,11 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-stale-request")
-    XCTAssertEqual(store.decisionRequests.map(\.id), [99, 1])
+    XCTAssertEqual(store.decisionRequests.map(\.id), [99])
     XCTAssertEqual(store.decisionRequests.first?.summary, "Run the accepted downstream request")
-    XCTAssertEqual(store.decisionRequests.last?.summary, "Run downstream work")
+    XCTAssertEqual(store.decisionRequests.last?.summary, "Run the accepted downstream request")
     XCTAssertEqual(store.bannerMessage, "Created 1 downstream request(s).")
   }
 
@@ -2661,7 +2885,7 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-with-followup")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertTrue(store.decisionRequests.isEmpty)
@@ -2700,7 +2924,7 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-with-filtered-followups")
     XCTAssertEqual(store.decisionFollowups.map(\.slug), ["followup-usable"])
     XCTAssertEqual(store.decisionFollowups.first?.title, "Usable follow-up")
@@ -2816,11 +3040,11 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-dropped-refresh")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
-    XCTAssertEqual(Set(store.visibleItems.map(\.slug)), Set(["ship-dropped-refresh", "other-decided"]))
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertTrue(store.annotations.isEmpty)
     XCTAssertTrue(store.decisionRequests.isEmpty)
     XCTAssertTrue(store.chatMessages.isEmpty)
@@ -2984,11 +3208,11 @@ final class ReviewStoreTests: XCTestCase {
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
     XCTAssertFalse(store.isUsingDemoData)
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "ship-no-demo")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-no-demo"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
   }
 
@@ -3015,11 +3239,11 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision(" park ", feedback: "")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Park"])
-    XCTAssertEqual(store.selectedTab, .parked)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "park-canonical-response")
     XCTAssertEqual(store.selectedItem?.status, "archived")
     XCTAssertEqual(store.selectedItem?.decision, "Park")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["park-canonical-response"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Park saved.")
   }
 
@@ -3035,7 +3259,7 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision(" execute \n", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "canonicalize-decision")
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
@@ -3066,11 +3290,11 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Execute", feedback: "Ship it.")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "status-variant-response")
     XCTAssertEqual(store.selectedItem?.status, "Processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["status-variant-response"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
   }
 
@@ -3087,11 +3311,11 @@ final class ReviewStoreTests: XCTestCase {
     await store.submitDecision("Park", feedback: "")
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Park"])
-    XCTAssertEqual(store.selectedTab, .parked)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "park-no-refresh")
     XCTAssertEqual(store.selectedItem?.status, "archived")
     XCTAssertEqual(store.selectedItem?.decision, "Park")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["park-no-refresh"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
     XCTAssertEqual(store.bannerMessage, "Park saved.")
   }
 
@@ -3106,11 +3330,11 @@ final class ReviewStoreTests: XCTestCase {
 
     await store.submitDecision("Park", feedback: "")
 
-    XCTAssertEqual(store.selectedTab, .parked)
+    XCTAssertEqual(store.selectedTab, .pending)
     XCTAssertEqual(store.selectedSlug, "park-me")
     XCTAssertEqual(store.selectedItem?.status, "archived")
     XCTAssertEqual(store.selectedItem?.decision, "Park")
-    XCTAssertEqual(store.visibleItems.map(\.slug), ["park-me"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), [])
   }
 
   func testSelectingEmptyTabClearsDetail() async {
@@ -3200,6 +3424,8 @@ private final class MockReviewService: TurfReviewServicing {
   var delayedCreateAnnotationStarted: (() -> Void)?
   var delayedDeleteAnnotationSlug: String?
   var delayedDeleteAnnotationStarted: (() -> Void)?
+  var delayedUpdateTargetKey: String?
+  var delayedUpdateTargetStarted: (() -> Void)?
   var delayedDecisionSlug: String?
   var delayedDecisionStarted: (() -> Void)?
   var delayedRetrySlug: String?
@@ -3208,12 +3434,16 @@ private final class MockReviewService: TurfReviewServicing {
   var getItemErrors: [String: Error] = [:]
   var getItemResponses: [String: ReviewItem] = [:]
   var annotationErrors: [String: Error] = [:]
+  var targetErrors: [String: Error] = [:]
   var actionErrors: [String: Error] = [:]
   var ttsErrors: [String: Error] = [:]
   var contextErrors: [String: Error] = [:]
   var createAnnotationErrors: [String: Error] = [:]
   var createAnnotationResponses: [String: ReviewAnnotation] = [:]
   var deleteAnnotationResponses: [String: DeleteAnnotationResponse] = [:]
+  var targetResponses: [String: ReviewTargetsResponse] = [:]
+  var updateTargetErrors: [String: Error] = [:]
+  var updateTargetResponses: [String: ReviewTargetJudgmentResponse] = [:]
   var sendChatErrors: [String: Error] = [:]
   var sendChatResponses: [String: ChatSendResponse] = [:]
   var chatHistoryErrors: [String: Error] = [:]
@@ -3224,6 +3454,7 @@ private final class MockReviewService: TurfReviewServicing {
   var decisions: [(slug: String, decision: String, feedback: String?)] = []
   var retryCalls: [String] = []
   var createAnnotationCalls: [(slug: String, quote: String?, anchorType: String, anchorRef: String?, comment: String, imageData: String?, imageMime: String?)] = []
+  var updateTargetCalls: [(slug: String, targetKey: String, verdict: String, feedback: String?)] = []
   var sendChatCalls: [(slug: String, message: String)] = []
   var deleteAnnotationCalls: [(slug: String, id: Int)] = []
   var getItemCalls: [String: Int] = [:]
@@ -3236,6 +3467,7 @@ private final class MockReviewService: TurfReviewServicing {
   private var delayedSendChatContinuation: CheckedContinuation<Void, Never>?
   private var delayedCreateAnnotationContinuation: CheckedContinuation<Void, Never>?
   private var delayedDeleteAnnotationContinuation: CheckedContinuation<Void, Never>?
+  private var delayedUpdateTargetContinuation: CheckedContinuation<Void, Never>?
   private var delayedDecisionContinuation: CheckedContinuation<Void, Never>?
   private var delayedRetryContinuation: CheckedContinuation<Void, Never>?
 
@@ -3276,6 +3508,11 @@ private final class MockReviewService: TurfReviewServicing {
   func releaseDelayedDeleteAnnotation() {
     delayedDeleteAnnotationContinuation?.resume()
     delayedDeleteAnnotationContinuation = nil
+  }
+
+  func releaseDelayedUpdateTarget() {
+    delayedUpdateTargetContinuation?.resume()
+    delayedUpdateTargetContinuation = nil
   }
 
   func releaseDelayedDecision() {
@@ -3329,6 +3566,57 @@ private final class MockReviewService: TurfReviewServicing {
       throw error
     }
     return [ReviewAnnotation(id: annotationIDs[slug] ?? slug.hashValue, slug: slug, quote: nil, anchorType: "text", anchorRef: nil, comment: "Annotation for \(slug)", createdAt: nil)]
+  }
+
+  func getReviewTargets(slug: String) async throws -> ReviewTargetsResponse {
+    if let error = targetErrors[slug] {
+      throw error
+    }
+    return targetResponses[slug] ?? ReviewTargetsResponse(slug: slug, targets: [], summary: .empty)
+  }
+
+  func updateReviewTarget(slug: String, targetKey: String, verdict: String, feedback: String?) async throws -> ReviewTargetJudgmentResponse {
+    updateTargetCalls.append((slug, targetKey, verdict, feedback))
+    if targetKey == delayedUpdateTargetKey {
+      delayedUpdateTargetStarted?()
+      await withCheckedContinuation { continuation in
+        delayedUpdateTargetContinuation = continuation
+      }
+    }
+    if let error = updateTargetErrors[targetKey] {
+      throw error
+    }
+    if let response = updateTargetResponses[targetKey] {
+      return response
+    }
+
+    var targets = targetResponses[slug]?.targets ?? []
+    let existing = targets.first { $0.key == targetKey } ?? ReviewTarget(
+      key: targetKey,
+      label: "Target \(targetKey)",
+      ordinal: targets.count + 1
+    )
+    let updated = ReviewTarget(
+      databaseID: existing.databaseID,
+      key: existing.key,
+      label: existing.label,
+      sourceType: existing.sourceType,
+      anchorRef: existing.anchorRef,
+      ordinal: existing.ordinal,
+      verdict: verdict,
+      feedback: feedback,
+      decided: verdict != "unset",
+      decidedAt: nil,
+      updatedAt: nil
+    )
+    if let index = targets.firstIndex(where: { $0.key == targetKey }) {
+      targets[index] = updated
+    } else {
+      targets.append(updated)
+    }
+    let summary = ReviewStoreSummaryFactory.summary(for: targets)
+    targetResponses[slug] = ReviewTargetsResponse(slug: slug, targets: targets, summary: summary)
+    return ReviewTargetJudgmentResponse(slug: slug, target: updated, summary: summary)
   }
 
   func createAnnotation(
@@ -3529,6 +3817,23 @@ private final class MockReviewService: TurfReviewServicing {
   }
 }
 
+private enum ReviewStoreSummaryFactory {
+  static func summary(for targets: [ReviewTarget]) -> ReviewTargetSummary {
+    let approved = targets.filter(\.isApproved).count
+    let rejected = targets.filter(\.isRejected).count
+    let undecided = targets.filter(\.isUnset).count
+    let decided = approved + rejected
+    return ReviewTargetSummary(
+      total: targets.count,
+      approved: approved,
+      rejected: rejected,
+      undecided: undecided,
+      decided: decided,
+      complete: targets.isEmpty || undecided == 0
+    )
+  }
+}
+
 private enum Fixture {
   static func request(
     slug: String,
@@ -3578,6 +3883,22 @@ private enum Fixture {
       decisionSchemaVersion: 3,
       createdAt: "2026-06-11 08:00:00",
       updatedAt: updatedAt
+    )
+  }
+
+  static func target(
+    key: String,
+    label: String,
+    verdict: String = "unset",
+    ordinal: Int = 1
+  ) -> ReviewTarget {
+    ReviewTarget(
+      key: key,
+      label: label,
+      sourceType: "task_list",
+      anchorRef: "target:\(key)",
+      ordinal: ordinal,
+      verdict: verdict
     )
   }
 }

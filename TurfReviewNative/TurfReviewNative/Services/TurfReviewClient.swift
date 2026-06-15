@@ -4,6 +4,8 @@ protocol TurfReviewServicing {
   func listItems() async throws -> [ReviewItem]
   func getItem(slug: String) async throws -> ReviewItem
   func getAnnotations(slug: String) async throws -> [ReviewAnnotation]
+  func getReviewTargets(slug: String) async throws -> ReviewTargetsResponse
+  func updateReviewTarget(slug: String, targetKey: String, verdict: String, feedback: String?) async throws -> ReviewTargetJudgmentResponse
   func createAnnotation(
     slug: String,
     quote: String?,
@@ -67,6 +69,19 @@ struct TurfReviewClient: TurfReviewServicing {
 
   func getAnnotations(slug: String) async throws -> [ReviewAnnotation] {
     try await send(path: "/api/items/\(slug.pathComponentEncoded)/annotations")
+  }
+
+  func getReviewTargets(slug: String) async throws -> ReviewTargetsResponse {
+    try await send(path: "/api/items/\(slug.pathComponentEncoded)/targets")
+  }
+
+  func updateReviewTarget(slug: String, targetKey: String, verdict: String, feedback: String?) async throws -> ReviewTargetJudgmentResponse {
+    let body = ReviewTargetJudgmentBody(verdict: verdict, feedback: feedback?.nilIfBlank)
+    return try await sendJSON(
+      path: "/api/items/\(slug.pathComponentEncoded)/targets/\(targetKey.pathComponentEncoded)",
+      method: "PATCH",
+      body: body
+    )
   }
 
   func createAnnotation(
@@ -243,6 +258,11 @@ private struct AnnotationBody: Encodable {
 
 private struct DecisionBody: Encodable {
   let decision: String
+  let feedback: String?
+}
+
+private struct ReviewTargetJudgmentBody: Encodable {
+  let verdict: String
   let feedback: String?
 }
 

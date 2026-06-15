@@ -47,30 +47,41 @@ struct HTMLDocumentView: UIViewRepresentable {
   let html: String
   let baseURL: URL?
   let annotations: [ReviewAnnotation]
+  let reviewTargets: [ReviewTarget]
   let onPencilSelection: (WebSelection) -> Void
+  let onReviewTargetDecision: (String, String) -> Void
   @Binding var selection: WebSelection
 
   init(
     html: String,
     baseURL: URL?,
     annotations: [ReviewAnnotation] = [],
+    reviewTargets: [ReviewTarget] = [],
     selection: Binding<WebSelection>,
-    onPencilSelection: @escaping (WebSelection) -> Void = { _ in }
+    onPencilSelection: @escaping (WebSelection) -> Void = { _ in },
+    onReviewTargetDecision: @escaping (String, String) -> Void = { _, _ in }
   ) {
     self.html = html
     self.baseURL = baseURL
     self.annotations = annotations
+    self.reviewTargets = reviewTargets
     _selection = selection
     self.onPencilSelection = onPencilSelection
+    self.onReviewTargetDecision = onReviewTargetDecision
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(selection: $selection, onPencilSelection: onPencilSelection)
+    Coordinator(
+      selection: $selection,
+      onPencilSelection: onPencilSelection,
+      onReviewTargetDecision: onReviewTargetDecision
+    )
   }
 
   func makeUIView(context: Context) -> WKWebView {
     let userContent = WKUserContentController()
     userContent.add(context.coordinator, name: "selection")
+    userContent.add(context.coordinator, name: "reviewTarget")
 
     let script = WKUserScript(
       source: Self.selectionScript,
@@ -92,44 +103,64 @@ struct HTMLDocumentView: UIViewRepresentable {
     webView.loadHTMLString(Self.wrap(html), baseURL: baseURL)
     context.coordinator.currentLoadState = HTMLDocumentLoadState(html: html, baseURL: baseURL)
     context.coordinator.updateAnnotations(annotations, in: webView)
+    context.coordinator.updateReviewTargets(reviewTargets, in: webView)
     return webView
   }
 
   func updateUIView(_ webView: WKWebView, context: Context) {
     context.coordinator.onPencilSelection = onPencilSelection
+    context.coordinator.onReviewTargetDecision = onReviewTargetDecision
     if context.coordinator.currentLoadState?.needsReload(html: html, baseURL: baseURL) != false {
       context.coordinator.currentLoadState = HTMLDocumentLoadState(html: html, baseURL: baseURL)
       context.coordinator.noteDocumentWillReload()
       webView.loadHTMLString(Self.wrap(html), baseURL: baseURL)
     }
     context.coordinator.updateAnnotations(annotations, in: webView)
+    context.coordinator.updateReviewTargets(reviewTargets, in: webView)
   }
 
   static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
     uiView.configuration.userContentController.removeScriptMessageHandler(forName: "selection")
+    uiView.configuration.userContentController.removeScriptMessageHandler(forName: "reviewTarget")
   }
 
   final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIGestureRecognizerDelegate {
     @Binding var selection: WebSelection
     var onPencilSelection: (WebSelection) -> Void
+    var onReviewTargetDecision: (String, String) -> Void
     var currentLoadState: HTMLDocumentLoadState?
     private weak var pencilSelectionRecognizer: UIPanGestureRecognizer?
     private var pencilStartPoint: CGPoint?
     private var latestAnnotations: [ReviewAnnotation] = []
+    private var latestReviewTargets: [ReviewTarget] = []
     private var renderedAnnotationPayload: String?
+    private var renderedReviewTargetPayload: String?
     private var lastPreviewSelectionTime: CFTimeInterval = 0
 
-    init(selection: Binding<WebSelection>, onPencilSelection: @escaping (WebSelection) -> Void) {
+    init(
+      selection: Binding<WebSelection>,
+      onPencilSelection: @escaping (WebSelection) -> Void,
+      onReviewTargetDecision: @escaping (String, String) -> Void
+    ) {
       _selection = selection
       self.onPencilSelection = onPencilSelection
+      self.onReviewTargetDecision = onReviewTargetDecision
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-      guard message.name == "selection",
-            let payload = message.body as? [String: Any] else { return }
-      let text = payload["text"] as? String ?? ""
-      let offset = payload["offset"] as? Int
-      selection = WebSelection(text: text, anchorRef: offset.map { "char:\($0)" })
+      guard let payload = message.body as? [String: Any] else { return }
+      switch message.name {
+      case "selection":
+        let text = payload["text"] as? String ?? ""
+        let offset = payload["offset"] as? Int
+        selection = WebSelection(text: text, anchorRef: offset.map { "char:\($0)" })
+      case "reviewTarget":
+        guard let key = payload["key"] as? String,
+              let verdict = payload["verdict"] as? String else { return }
+        onReviewTargetDecision(key, verdict)
+      default:
+        return
+      }
     }
 
     func installPencilSelectionGesture(on webView: WKWebView) {
@@ -201,6 +232,7 @@ struct HTMLDocumentView: UIViewRepresentable {
 
     func noteDocumentWillReload() {
       renderedAnnotationPayload = nil
+      renderedReviewTargetPayload = nil
     }
 
     func updateAnnotations(_ annotations: [ReviewAnnotation], in webView: WKWebView) {
@@ -208,11 +240,23 @@ struct HTMLDocumentView: UIViewRepresentable {
       applyAnnotationsIfNeeded(in: webView)
     }
 
+    func updateReviewTargets(_ reviewTargets: [ReviewTarget], in webView: WKWebView) {
+      latestReviewTargets = reviewTargets
+      applyReviewTargetsIfNeeded(in: webView)
+    }
+
     private func applyAnnotationsIfNeeded(in webView: WKWebView) {
       let payload = HTMLDocumentView.textAnnotationPayloadJSON(for: latestAnnotations)
       guard payload != renderedAnnotationPayload else { return }
       renderedAnnotationPayload = payload
       webView.evaluateJavaScript("window.__turfApplyTextAnnotations && window.__turfApplyTextAnnotations(\(payload));")
+    }
+
+    private func applyReviewTargetsIfNeeded(in webView: WKWebView) {
+      let payload = HTMLDocumentView.reviewTargetPayloadJSON(for: latestReviewTargets)
+      guard payload != renderedReviewTargetPayload else { return }
+      renderedReviewTargetPayload = payload
+      webView.evaluateJavaScript("window.__turfApplyReviewTargets && window.__turfApplyReviewTargets(\(payload));")
     }
 
     func webView(
@@ -236,7 +280,9 @@ struct HTMLDocumentView: UIViewRepresentable {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
       renderedAnnotationPayload = nil
+      renderedReviewTargetPayload = nil
       applyAnnotationsIfNeeded(in: webView)
+      applyReviewTargetsIfNeeded(in: webView)
     }
   }
 
@@ -334,13 +380,19 @@ struct HTMLDocumentView: UIViewRepresentable {
       return payloadFromRange(range);
     };
 
-    function removeNativeHighlights() {
-      document.querySelectorAll("mark.turf-native-annotation-highlight").forEach(function(mark) {
+    function removeHighlights(selector) {
+      document.querySelectorAll(selector).forEach(function(mark) {
         var parent = mark.parentNode;
         if (!parent) return;
         while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
         parent.removeChild(mark);
         parent.normalize();
+      });
+    }
+
+    function removeReviewTargetControls() {
+      document.querySelectorAll(".turf-native-target-controls").forEach(function(control) {
+        control.remove();
       });
     }
 
@@ -352,12 +404,12 @@ struct HTMLDocumentView: UIViewRepresentable {
       return nodes;
     }
 
-    function rangeForTextAnnotation(content, annotation) {
-      var quote = (annotation.quote || "").trim();
+    function rangeForText(content, quote, anchorRef) {
+      quote = (quote || "").trim();
       if (!quote) return null;
       var fullText = content.textContent || "";
       var start = -1;
-      var anchor = annotation.anchorRef || annotation.anchor_ref || "";
+      var anchor = anchorRef || "";
       var charMatch = /^char:(\\d+)$/.exec(anchor);
       if (charMatch) {
         var hint = Number(charMatch[1]);
@@ -393,12 +445,61 @@ struct HTMLDocumentView: UIViewRepresentable {
       return range;
     }
 
+    function targetHostForRange(content, range) {
+      if (!range) return null;
+      var node = range.commonAncestorContainer;
+      var element = node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement;
+      if (!element || !content.contains(element)) return null;
+      var listItem = element.closest("li");
+      if (listItem && content.contains(listItem)) return listItem;
+      var tableCell = element.closest("td, th");
+      if (tableCell && content.contains(tableCell)) return tableCell;
+      var block = element.closest("p, blockquote, h1, h2, h3, h4, h5, h6");
+      if (block && content.contains(block)) return block;
+      return element;
+    }
+
+    function reviewTargetButton(target, verdict, label, active) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "turf-native-target-button" + (active ? " is-active" : "");
+      button.dataset.targetKey = target.key || "";
+      button.dataset.verdict = verdict;
+      button.textContent = label;
+      return button;
+    }
+
+    function insertReviewTargetControls(content, host, target, state) {
+      if (!host || host.classList.contains("turf-native-target-controls")) return;
+      var control = document.createElement("div");
+      control.className = "turf-native-target-controls turf-native-target-controls-" + (state || "unset");
+      control.dataset.targetKey = target.key || "";
+
+      var status = document.createElement("span");
+      status.className = "turf-native-target-status";
+      status.textContent = state === "approved" ? "Yes" : state === "rejected" ? "No" : "Open";
+      control.appendChild(status);
+      control.appendChild(reviewTargetButton(target, "approved", "Yes", state === "approved"));
+      control.appendChild(reviewTargetButton(target, "rejected", "No", state === "rejected"));
+      if (state === "approved" || state === "rejected") {
+        control.appendChild(reviewTargetButton(target, "unset", "Clear", false));
+      }
+
+      if (host.matches("li, td, th")) {
+        host.appendChild(control);
+      } else if (host.parentNode) {
+        host.parentNode.insertBefore(control, host.nextSibling);
+      } else {
+        content.appendChild(control);
+      }
+    }
+
     window.__turfApplyTextAnnotations = function(annotations) {
       var content = document.getElementById("content") || document.body;
-      removeNativeHighlights();
+      removeHighlights("mark.turf-native-annotation-highlight");
       (annotations || []).forEach(function(annotation) {
         if ((annotation.anchorType || annotation.anchor_type) !== "text") return;
-        var range = rangeForTextAnnotation(content, annotation);
+        var range = rangeForText(content, annotation.quote || "", annotation.anchorRef || annotation.anchor_ref || "");
         if (!range || range.collapsed) return;
         var mark = document.createElement("mark");
         mark.className = "turf-native-annotation-highlight";
@@ -412,6 +513,41 @@ struct HTMLDocumentView: UIViewRepresentable {
         }
       });
     };
+
+    window.__turfApplyReviewTargets = function(targets) {
+      var content = document.getElementById("content") || document.body;
+      removeReviewTargetControls();
+      removeHighlights("mark.turf-native-target-highlight");
+      (targets || []).forEach(function(target) {
+        var range = rangeForText(content, target.label || "", "");
+        if (!range || range.collapsed) return;
+        var state = (target.verdict || "unset").trim().toLowerCase();
+        var host = targetHostForRange(content, range);
+        var mark = document.createElement("mark");
+        mark.className = "turf-native-target-highlight turf-native-target-" + (state || "unset");
+        mark.dataset.targetKey = target.key || "";
+        mark.title = state === "approved" ? "Yes" : state === "rejected" ? "No" : "Open";
+        try {
+          range.surroundContents(mark);
+        } catch (e) {
+          mark.appendChild(range.extractContents());
+          range.insertNode(mark);
+        }
+        insertReviewTargetControls(content, host, target, state);
+      });
+    };
+
+    document.addEventListener("click", function(event) {
+      var button = event.target.closest(".turf-native-target-button");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.reviewTarget) return;
+      window.webkit.messageHandlers.reviewTarget.postMessage({
+        key: button.dataset.targetKey || "",
+        verdict: button.dataset.verdict || ""
+      });
+    });
 
     document.addEventListener("selectionchange", function() {
       window.clearTimeout(window.__turfSelectionTimer);
@@ -569,6 +705,77 @@ struct HTMLDocumentView: UIViewRepresentable {
             box-decoration-break: clone;
             -webkit-box-decoration-break: clone;
           }
+          mark.turf-native-target-highlight {
+            background: rgba(201, 154, 56, 0.24);
+            border-bottom: 2px solid rgba(201, 154, 56, 0.72);
+            border-radius: 3px;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+          }
+          mark.turf-native-target-approved {
+            background: rgba(104, 127, 78, 0.2);
+            border-bottom-color: rgba(104, 127, 78, 0.72);
+          }
+          mark.turf-native-target-rejected {
+            background: rgba(201, 95, 69, 0.2);
+            border-bottom-color: rgba(201, 95, 69, 0.72);
+          }
+          .turf-native-target-controls {
+            align-items: center;
+            background: var(--paper-soft);
+            border: 1px solid var(--hairline);
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: inline-flex;
+            flex-wrap: wrap;
+            font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", sans-serif;
+            gap: 8px;
+            line-height: 1.2;
+            margin: 0.55rem 0 0.9rem;
+            padding: 7px;
+          }
+          li > .turf-native-target-controls,
+          td > .turf-native-target-controls,
+          th > .turf-native-target-controls {
+            display: flex;
+            width: fit-content;
+          }
+          .turf-native-target-status {
+            color: var(--muted);
+            font-size: 0.76rem;
+            font-weight: 700;
+            padding: 0 3px;
+            text-transform: uppercase;
+          }
+          .turf-native-target-button {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            border: 1px solid var(--hairline);
+            border-radius: 7px;
+            color: var(--ink);
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.86rem;
+            font-weight: 700;
+            min-height: 32px;
+            min-width: 58px;
+            padding: 6px 11px;
+          }
+          .turf-native-target-button.is-active {
+            color: #fffdf7;
+          }
+          .turf-native-target-controls-approved .turf-native-target-button.is-active {
+            background: #687f4e;
+            border-color: #687f4e;
+          }
+          .turf-native-target-controls-rejected .turf-native-target-button.is-active {
+            background: #c95f45;
+            border-color: #c95f45;
+          }
+          .turf-native-target-button:active {
+            transform: translateY(1px);
+          }
           ::selection {
             background: rgba(0, 124, 137, 0.24);
           }
@@ -606,6 +813,23 @@ struct HTMLDocumentView: UIViewRepresentable {
         "anchorType": annotation.anchorType,
         "anchorRef": annotation.anchorRef ?? "",
         "comment": annotation.comment,
+      ]
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8) else {
+      return "[]"
+    }
+    return json
+  }
+
+  private static func reviewTargetPayloadJSON(for targets: [ReviewTarget]) -> String {
+    let payload = targets.compactMap { target -> [String: Any]? in
+      let label = target.label.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !label.isEmpty else { return nil }
+      return [
+        "key": target.key,
+        "label": label,
+        "verdict": target.normalizedVerdict,
       ]
     }
     guard let data = try? JSONSerialization.data(withJSONObject: payload),

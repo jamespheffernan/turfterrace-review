@@ -14,6 +14,9 @@ final class ReviewStore: ObservableObject {
   @Published var selectedSlug: String?
   @Published var selectedItem: ReviewItem?
   @Published var annotations: [ReviewAnnotation] = []
+  @Published var reviewTargets: [ReviewTarget] = []
+  @Published var reviewTargetSummary: ReviewTargetSummary = .empty
+  @Published var reviewTargetLoadError: String?
   @Published var decisionRequests: [DecisionRequest] = []
   @Published var decisionFollowups: [DecisionResponse.FollowupSummary] = []
   @Published var legacyActions: [LegacyAction] = []
@@ -34,10 +37,12 @@ final class ReviewStore: ObservableObject {
   private var acceptedRetryRequestOverrides: [String: [Int: DecisionRequest]] = [:]
   private var acceptedRetryActionOverrides: [String: [Int: LegacyAction]] = [:]
   private var acceptedRetryItemActionOverrides: [String: RetryItemActionOverride] = [:]
+  private var acceptedReviewTargetOverrides: [String: [String: ReviewTarget]] = [:]
   private var hasLoadedLiveQueue = false
   @Published private var submittingDecisionSlugs: Set<String> = []
   @Published private var retryingActionSlugs: Set<String> = []
   @Published private var sendingChatSlugs: Set<String> = []
+  @Published private var updatingReviewTargetKeys: Set<String> = []
   private var chatSessionKeys: [String: String] = [:]
   private var localChatErrorMessageIDs: Set<UUID> = []
 
@@ -116,6 +121,11 @@ final class ReviewStore: ObservableObject {
     return sendingChatSlugs.contains(slug)
   }
 
+  func isUpdatingReviewTarget(_ target: ReviewTarget) -> Bool {
+    guard let selectedSlug else { return false }
+    return updatingReviewTargetKeys.contains(Self.reviewTargetUpdateKey(slug: selectedSlug, targetKey: target.key))
+  }
+
   func refresh(useDemoFallback: Bool = true) async {
     let requestID = UUID()
     activeRefreshRequestID = requestID
@@ -163,7 +173,9 @@ final class ReviewStore: ObservableObject {
     acceptedRetryRequestOverrides = [:]
     acceptedRetryActionOverrides = [:]
     acceptedRetryItemActionOverrides = [:]
+    acceptedReviewTargetOverrides = [:]
     hasLoadedLiveQueue = false
+    updatingReviewTargetKeys = []
     configuration = newConfiguration
     configuration.save()
     items = []
@@ -194,6 +206,10 @@ final class ReviewStore: ObservableObject {
       guard activeDetailRequestID == requestID, selectedSlug == slug else { return }
       selectedItem = items.first { $0.slug == slug }
       annotations = DemoData.annotations.filter { $0.slug == slug }
+      let demoTargets = DemoData.reviewTargets[slug] ?? []
+      reviewTargets = demoTargets
+      reviewTargetSummary = Self.summary(for: demoTargets)
+      reviewTargetLoadError = nil
       decisionRequests = DemoData.requests.filter { $0.slug == slug }
       decisionFollowups = []
       legacyActions = []
@@ -208,6 +224,7 @@ final class ReviewStore: ObservableObject {
     do {
       async let item = client.getItem(slug: slug)
       async let annotationResult = capture { try await client.getAnnotations(slug: slug) }
+      async let targetResult = capture { try await client.getReviewTargets(slug: slug) }
       async let actionResult = capture { try await client.getActions(slug: slug) }
       async let ttsResult = capture { try await client.ttsStatus(slug: slug) }
       async let contextResult = capture { try await client.contextStatus(slug: slug) }
@@ -215,6 +232,7 @@ final class ReviewStore: ObservableObject {
       let loadedItem = try await item
       try validateReviewItem(loadedItem, expectedSlug: slug)
       let loadedAnnotations = await annotationResult
+      let loadedTargets = await targetResult
       let loadedActions = await actionResult
       let loadedTTS = await ttsResult
       let loadedContext = await contextResult
@@ -223,6 +241,7 @@ final class ReviewStore: ObservableObject {
       let partialErrors = applyDetailSections(
         expectedSlug: slug,
         annotations: loadedAnnotations,
+        targets: loadedTargets,
         actions: loadedActions,
         tts: loadedTTS,
         context: loadedContext
@@ -363,6 +382,67 @@ final class ReviewStore: ObservableObject {
     }
   }
 
+  @discardableResult
+  func updateReviewTarget(_ target: ReviewTarget, verdict: String, feedback: String? = nil) async -> Bool {
+    guard let slug = selectedSlug else { return false }
+    return await updateReviewTarget(target, for: slug, verdict: verdict, feedback: feedback)
+  }
+
+  @discardableResult
+  func updateReviewTarget(_ target: ReviewTarget, for slug: String?, verdict: String, feedback: String? = nil) async -> Bool {
+    guard let slug else { return false }
+    let revision = configurationRevision
+    let normalizedVerdict = Self.normalizedVerdict(verdict)
+    guard !normalizedVerdict.isEmpty else { return false }
+    let updateKey = Self.reviewTargetUpdateKey(slug: slug, targetKey: target.key)
+    guard !updatingReviewTargetKeys.contains(updateKey) else { return false }
+    updatingReviewTargetKeys.insert(updateKey)
+    defer {
+      if configurationRevision == revision {
+        updatingReviewTargetKeys.remove(updateKey)
+      }
+    }
+
+    if isUsingDemoData {
+      guard selectedSlug == slug else { return false }
+      applyLocalReviewTarget(
+        target: target,
+        verdict: normalizedVerdict,
+        feedback: feedback
+      )
+      bannerMessage = nil
+      return true
+    }
+
+    do {
+      let response = try await client.updateReviewTarget(
+        slug: slug,
+        targetKey: target.key,
+        verdict: normalizedVerdict,
+        feedback: feedback
+      )
+      try validateReviewTargetJudgment(response, expectedSlug: slug, expectedTargetKey: target.key)
+      guard configurationRevision == revision else { return true }
+      guard selectedSlug == slug else {
+        if let acceptedTarget = response.target {
+          acceptedReviewTargetOverrides[slug, default: [:]][acceptedTarget.key] = acceptedTarget
+        }
+        return true
+      }
+      if let acceptedTarget = response.target {
+        replaceReviewTarget(acceptedTarget)
+        acceptedReviewTargetOverrides[slug, default: [:]][acceptedTarget.key] = acceptedTarget
+      }
+      reviewTargetSummary = response.summary
+      bannerMessage = nil
+      return true
+    } catch {
+      guard isCurrent(revision: revision, slug: slug) else { return false }
+      bannerMessage = error.localizedDescription
+      return false
+    }
+  }
+
   func submitDecision(_ decision: String, feedback: String) async {
     guard let slug = selectedSlug else { return }
     await submitDecision(for: slug, decision, feedback: feedback)
@@ -370,6 +450,7 @@ final class ReviewStore: ObservableObject {
 
   func submitDecision(for slug: String, _ decision: String, feedback: String) async {
     let revision = configurationRevision
+    let sourceTab = selectedTab
     let resolvedDecision = canonicalDecision(decision, for: slug)
     guard !resolvedDecision.isEmpty else { return }
     guard !submittingDecisionSlugs.contains(slug) else { return }
@@ -429,7 +510,9 @@ final class ReviewStore: ObservableObject {
       await refresh(useDemoFallback: false)
       if configurationRevision == revision,
          let acceptedSelectedItem {
-        if userSelectionRevision == selectionRevisionAfterAccept || selectedSlug == slug {
+        if sourceTab == .pending, userSelectionRevision == selectionRevisionAfterAccept {
+          preserveAcceptedDecisionIfNeeded(acceptedSelectedItem, preferredTab: .pending)
+        } else if selectedSlug == slug {
           preserveAcceptedDecisionIfNeeded(acceptedSelectedItem, preferredTab: tabAfterDecision(response.decision))
         } else {
           mergeAcceptedDecisionIntoQueue(acceptedSelectedItem)
@@ -594,6 +677,7 @@ final class ReviewStore: ObservableObject {
   private func applyDetailSections(
     expectedSlug: String,
     annotations loadedAnnotations: Result<[ReviewAnnotation], Error>,
+    targets loadedTargets: Result<ReviewTargetsResponse, Error>,
     actions loadedActions: Result<ReviewActionsResponse, Error>,
     tts loadedTTS: Result<AudioStatusResponse, Error>,
     context loadedContext: Result<AudioStatusResponse, Error>
@@ -611,6 +695,23 @@ final class ReviewStore: ObservableObject {
       }
     case .failure(let error):
       clearAnnotationsIfTheyDoNotBelong(to: expectedSlug)
+      errors.append(error.localizedDescription)
+    }
+
+    switch loadedTargets {
+    case .success(let loadedTargets):
+      do {
+        try validateReviewTargets(loadedTargets, expectedSlug: expectedSlug)
+        applyReviewTargets(reviewTargetsPreservingAcceptedJudgments(loadedTargets, slug: expectedSlug))
+        reviewTargetLoadError = nil
+      } catch {
+        clearReviewTargetsIfTheyDoNotBelong(to: expectedSlug)
+        reviewTargetLoadError = error.localizedDescription
+        errors.append(error.localizedDescription)
+      }
+    case .failure(let error):
+      clearReviewTargetsIfTheyDoNotBelong(to: expectedSlug)
+      reviewTargetLoadError = error.localizedDescription
       errors.append(error.localizedDescription)
     }
 
@@ -654,6 +755,15 @@ final class ReviewStore: ObservableObject {
       annotation.slug == nil || annotation.slug == expectedSlug
     }) else { return }
     annotations = []
+  }
+
+  private func clearReviewTargetsIfTheyDoNotBelong(to expectedSlug: String) {
+    guard selectedSlug == expectedSlug else {
+      reviewTargets = []
+      reviewTargetSummary = .empty
+      reviewTargetLoadError = nil
+      return
+    }
   }
 
   private func clearActionsIfTheyDoNotBelong(to expectedSlug: String) {
@@ -764,6 +874,9 @@ final class ReviewStore: ObservableObject {
   private func prepareDetailForLoading(slug: String, clearBanner: Bool = true) {
     selectedItem = items.first { $0.slug == slug }
     annotations = []
+    reviewTargets = []
+    reviewTargetSummary = .empty
+    reviewTargetLoadError = nil
     decisionRequests = []
     decisionFollowups = []
     legacyActions = []
@@ -784,6 +897,9 @@ final class ReviewStore: ObservableObject {
 
   private func clearLoadedDetailSectionsForSelectedItem() {
     annotations = []
+    reviewTargets = []
+    reviewTargetSummary = .empty
+    reviewTargetLoadError = nil
     decisionRequests = []
     decisionFollowups = []
     legacyActions = []
@@ -791,6 +907,89 @@ final class ReviewStore: ObservableObject {
     localChatErrorMessageIDs = []
     ttsStatus = selectedItem.map { AudioStatusResponse(status: $0.ttsStatus, url: nil, summary: nil) }
     contextStatus = selectedItem.map { AudioStatusResponse(status: $0.contextStatus, url: nil, summary: $0.contextSummary) }
+  }
+
+  private func applyReviewTargets(_ response: ReviewTargetsResponse) {
+    reviewTargets = response.targets
+    reviewTargetSummary = response.summary
+  }
+
+  private func replaceReviewTarget(_ target: ReviewTarget) {
+    if let index = reviewTargets.firstIndex(where: { $0.key == target.key }) {
+      reviewTargets[index] = target
+    } else {
+      reviewTargets.append(target)
+      reviewTargets.sort { $0.ordinal < $1.ordinal }
+    }
+  }
+
+  private func applyLocalReviewTarget(target: ReviewTarget, verdict: String, feedback: String?) {
+    let updated = ReviewTarget(
+      databaseID: target.databaseID,
+      key: target.key,
+      label: target.label,
+      sourceType: target.sourceType,
+      anchorRef: target.anchorRef,
+      ordinal: target.ordinal,
+      verdict: verdict,
+      feedback: Self.trimmedOptional(feedback),
+      decided: verdict != "unset",
+      decidedAt: nil,
+      updatedAt: nil
+    )
+    replaceReviewTarget(updated)
+    reviewTargetSummary = Self.summary(for: reviewTargets)
+  }
+
+  private func reviewTargetsPreservingAcceptedJudgments(_ response: ReviewTargetsResponse, slug: String) -> ReviewTargetsResponse {
+    guard let overrides = acceptedReviewTargetOverrides[slug], !overrides.isEmpty else {
+      return response
+    }
+    let targets = response.targets.map { target in
+      overrides[target.key] ?? target
+    }
+    return ReviewTargetsResponse(
+      slug: response.slug,
+      targets: targets,
+      summary: Self.summary(for: targets)
+    )
+  }
+
+  private static func summary(for targets: [ReviewTarget]) -> ReviewTargetSummary {
+    let approved = targets.filter(\.isApproved).count
+    let rejected = targets.filter(\.isRejected).count
+    let undecided = targets.filter(\.isUnset).count
+    let decided = approved + rejected
+    return ReviewTargetSummary(
+      total: targets.count,
+      approved: approved,
+      rejected: rejected,
+      undecided: undecided,
+      decided: decided,
+      complete: targets.isEmpty || undecided == 0
+    )
+  }
+
+  private static func normalizedVerdict(_ verdict: String) -> String {
+    switch verdict.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "yes", "approve", "approved", "accept", "accepted":
+      return "approved"
+    case "no", "reject", "rejected", "decline", "declined":
+      return "rejected"
+    case "unset", "clear":
+      return "unset"
+    default:
+      return ""
+    }
+  }
+
+  private static func trimmedOptional(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private static func reviewTargetUpdateKey(slug: String, targetKey: String) -> String {
+    "\(slug)\u{1f}\(targetKey)"
   }
 
   private func tabAfterDecision(_ decision: String) -> ReviewTab {
@@ -849,7 +1048,6 @@ final class ReviewStore: ObservableObject {
           ) else { return nil }
     mergeAcceptedDecisionIntoQueue(acceptedItem)
     selectedItem = items.first { $0.slug == slug } ?? acceptedItem
-    selectedTab = tabAfterDecision(decision)
     return selectedItem
   }
 
@@ -1163,6 +1361,25 @@ final class ReviewStore: ObservableObject {
     }
   }
 
+  private func validateReviewTargets(_ response: ReviewTargetsResponse, expectedSlug: String) throws {
+    guard response.slug == expectedSlug else {
+      throw ResponseIntegrityError.slugMismatch(resource: "review targets", expected: expectedSlug, actual: response.slug)
+    }
+  }
+
+  private func validateReviewTargetJudgment(
+    _ response: ReviewTargetJudgmentResponse,
+    expectedSlug: String,
+    expectedTargetKey: String
+  ) throws {
+    guard response.slug == expectedSlug else {
+      throw ResponseIntegrityError.slugMismatch(resource: "review target", expected: expectedSlug, actual: response.slug)
+    }
+    guard response.target?.key == expectedTargetKey else {
+      throw ResponseIntegrityError.reviewTargetMismatch(expected: expectedTargetKey, actual: response.target?.key ?? "none")
+    }
+  }
+
   private func validateActions(_ actions: ReviewActionsResponse, expectedSlug: String) throws {
     guard actions.slug == expectedSlug else {
       throw ResponseIntegrityError.slugMismatch(resource: "proof", expected: expectedSlug, actual: actions.slug)
@@ -1289,6 +1506,7 @@ private enum ResponseIntegrityError: LocalizedError {
   case decisionStatusMismatch(expected: String, actual: String)
   case annotationDeleteRejected(id: Int, message: String)
   case annotationSelectionMismatch(expected: String, actual: String)
+  case reviewTargetMismatch(expected: String, actual: String)
   case chatSessionMismatch(slug: String, expected: String, actual: String)
 
   var errorDescription: String? {
@@ -1303,6 +1521,8 @@ private enum ResponseIntegrityError: LocalizedError {
       return message
     case .annotationSelectionMismatch(let expected, let actual):
       return "Annotation belongs to \(actual), not \(expected)."
+    case .reviewTargetMismatch(let expected, let actual):
+      return "Server returned review target \(actual), not \(expected)."
     case .chatSessionMismatch(let slug, let expected, let actual):
       return "Server returned chat session \(actual) for \(slug), not \(expected)."
     }

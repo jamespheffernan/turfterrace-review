@@ -31,7 +31,7 @@
 %>
 <% if (!reviewChatEnabled && typeof actions !== 'undefined' && actions) { reviewChatEnabled = actions.some(function(a) { return chatActionNames.indexOf(a.toLowerCase()) !== -1; }); } %>
 <% if (reviewChatEnabled) { %>
-<link rel="stylesheet" href="/chat.css?v=<%= Date.now() %>">
+<link rel="stylesheet" href="/chat.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
 <% } %>
 
 <!-- Sticky back button -->
@@ -94,21 +94,37 @@
     </div>
   <% } %>
 
-  <!-- Audio players -->
+  <!-- Audio players (hairline editorial) -->
   <% if (item.tts_status === 'ready' || item.context_status === 'ready') { %>
   <div class="audio-players">
     <% if (item.tts_status === 'ready') { %>
-      <div class="tts-player tts-player--read-aloud">
-        <span class="audio-label">📖 Read aloud</span>
-        <audio controls preload="none">
+      <div class="audio-row" data-channel="readaloud">
+        <button class="audio-play" type="button" aria-label="Play read aloud">
+          <svg class="audio-icon audio-icon--play" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2l7 4-7 4z"/></svg>
+          <svg class="audio-icon audio-icon--pause" viewBox="0 0 12 12" aria-hidden="true"><rect x="3" y="2" width="2.5" height="8"/><rect x="6.5" y="2" width="2.5" height="8"/></svg>
+        </button>
+        <span class="audio-label">Read aloud</span>
+        <div class="audio-progress" tabindex="0" role="slider" aria-label="Read aloud progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="audio-progress-fill"></div>
+        </div>
+        <span class="audio-time">0:00</span>
+        <audio preload="metadata">
           <source src="/tts-cache/<%= item.slug %>.mp3" type="audio/mpeg">
         </audio>
       </div>
     <% } %>
     <% if (item.context_status === 'ready') { %>
-      <div class="tts-player tts-player--context">
-        <span class="audio-label">💬 Context</span>
-        <audio controls preload="none">
+      <div class="audio-row" data-channel="context">
+        <button class="audio-play" type="button" aria-label="Play context">
+          <svg class="audio-icon audio-icon--play" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2l7 4-7 4z"/></svg>
+          <svg class="audio-icon audio-icon--pause" viewBox="0 0 12 12" aria-hidden="true"><rect x="3" y="2" width="2.5" height="8"/><rect x="6.5" y="2" width="2.5" height="8"/></svg>
+        </button>
+        <span class="audio-label">Context</span>
+        <div class="audio-progress" tabindex="0" role="slider" aria-label="Context progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="audio-progress-fill"></div>
+        </div>
+        <span class="audio-time">0:00</span>
+        <audio preload="metadata">
           <source src="/audio/<%= item.slug %>.mp3" type="audio/mpeg">
         </audio>
       </div>
@@ -290,6 +306,108 @@
     t.parentNode.insertBefore(wrap, t);
     wrap.appendChild(t);
   });
+
+  // Hairline audio players: wire each .audio-row to its inner <audio>.
+  (function initAudioPlayers() {
+    function fmt(s) {
+      if (!Number.isFinite(s) || s < 0) return '0:00';
+      var m = Math.floor(s / 60);
+      var sec = Math.floor(s % 60).toString().padStart(2, '0');
+      return m + ':' + sec;
+    }
+    document.querySelectorAll('.audio-row').forEach(function(row) {
+      var audio = row.querySelector('audio');
+      var btn = row.querySelector('.audio-play');
+      var progress = row.querySelector('.audio-progress');
+      var fill = row.querySelector('.audio-progress-fill');
+      var timeEl = row.querySelector('.audio-time');
+      if (!audio || !btn || !progress || !fill || !timeEl) return;
+      var duration = NaN;
+
+      function paintTime() {
+        var t = audio.currentTime || 0;
+        if (!duration || !Number.isFinite(duration)) {
+          timeEl.textContent = fmt(t);
+        } else if (row.dataset.state === 'playing' || t > 0) {
+          timeEl.textContent = fmt(t) + ' / ' + fmt(duration);
+        } else {
+          timeEl.textContent = fmt(duration);
+        }
+      }
+      function paintProgress() {
+        if (!duration || !Number.isFinite(duration) || duration === 0) {
+          fill.style.width = '0%';
+          progress.setAttribute('aria-valuenow', '0');
+          return;
+        }
+        var pct = Math.min(100, (audio.currentTime / duration) * 100);
+        fill.style.width = pct + '%';
+        progress.setAttribute('aria-valuenow', String(Math.round(pct)));
+      }
+      function setLabel(prefix) {
+        var current = btn.getAttribute('aria-label') || '';
+        btn.setAttribute('aria-label', current.replace(/^(Play|Pause)\s/, prefix + ' '));
+      }
+
+      audio.addEventListener('loadedmetadata', function() {
+        duration = audio.duration;
+        paintTime();
+        paintProgress();
+      });
+      audio.addEventListener('timeupdate', function() { paintProgress(); paintTime(); });
+      audio.addEventListener('play', function() {
+        row.dataset.state = 'playing';
+        setLabel('Pause');
+        document.querySelectorAll('.audio-row audio').forEach(function(other) {
+          if (other !== audio && !other.paused) other.pause();
+        });
+        paintTime();
+      });
+      audio.addEventListener('pause', function() {
+        row.dataset.state = 'paused';
+        setLabel('Play');
+        paintTime();
+      });
+      audio.addEventListener('ended', function() {
+        row.dataset.state = 'paused';
+        setLabel('Play');
+        paintTime();
+      });
+
+      btn.addEventListener('click', function() {
+        if (audio.paused) audio.play(); else audio.pause();
+      });
+
+      progress.addEventListener('click', function(ev) {
+        if (!duration || !Number.isFinite(duration)) return;
+        var rect = progress.getBoundingClientRect();
+        var x = ev.clientX - rect.left;
+        var pct = Math.max(0, Math.min(1, x / rect.width));
+        audio.currentTime = pct * duration;
+        paintProgress();
+        paintTime();
+      });
+      progress.addEventListener('keydown', function(ev) {
+        if (!duration || !Number.isFinite(duration)) return;
+        var step = duration < 30 ? 1 : 5;
+        if (ev.key === 'ArrowRight') {
+          audio.currentTime = Math.min(duration, audio.currentTime + step); ev.preventDefault();
+        } else if (ev.key === 'ArrowLeft') {
+          audio.currentTime = Math.max(0, audio.currentTime - step); ev.preventDefault();
+        } else if (ev.key === 'Home') {
+          audio.currentTime = 0; ev.preventDefault();
+        } else if (ev.key === 'End') {
+          audio.currentTime = duration; ev.preventDefault();
+        } else if (ev.key === ' ' || ev.key === 'Enter') {
+          if (audio.paused) audio.play(); else audio.pause();
+          ev.preventDefault();
+        }
+      });
+
+      paintTime();
+      paintProgress();
+    });
+  })();
 
   let mediaRecorder = null;
   let audioChunks = [];
@@ -485,7 +603,9 @@
   }
 
   function renderAnnotation(ann) {
-    if (ann.anchor_type === 'text') {
+    if (ann.image_data) {
+      renderStandaloneImageAnnotation(ann);
+    } else if (ann.anchor_type === 'text') {
       highlightText(ann);
     } else if (ann.anchor_type === 'image') {
       renderImageAnnotation(ann);
@@ -536,6 +656,24 @@
       badge.textContent = existing.length;
       badge.onclick = function(e) { e.stopPropagation(); showImgAnnotationList(badge, existing); };
     });
+  }
+
+  function renderStandaloneImageAnnotation(ann) {
+    const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
+    if (!container || container.querySelector('[data-pencil-annotation-id="' + ann.id + '"]')) return;
+    const card = document.createElement('div');
+    card.className = 'pencil-annotation-card';
+    card.dataset.pencilAnnotationId = ann.id;
+    const mime = ann.image_mime || 'image/png';
+    card.innerHTML = '<div class="pencil-annotation-card__label">Apple Pencil note</div>' +
+      '<img alt="Apple Pencil annotation" src="data:' + escapeHtml(mime) + ';base64,' + ann.image_data + '">' +
+      '<p>' + escapeHtml(ann.comment || '') + '</p>' +
+      '<button class="pencil-annotation-card__delete" type="button">Delete</button>';
+    card.querySelector('.pencil-annotation-card__delete').onclick = function(e) {
+      e.stopPropagation();
+      deleteAnnotation(ann.id).then(function() { card.remove(); });
+    };
+    container.insertBefore(card, container.firstChild);
   }
 
   function ensureImgWrap(img) {
@@ -896,6 +1034,6 @@
 
 <% if (reviewChatEnabled) { %>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="/chat.js?v=<%= Date.now() %>"></script>
+<script src="/chat.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>"></script>
 <% } %>
 <%- include('layout-end') %>

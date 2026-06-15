@@ -108,6 +108,18 @@ struct QueueView: View {
           }
           .tag(item.slug)
           .listRowBackground(Color.clear)
+          .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if store.selectedTab == .pending,
+               let archiveAction = item.archiveAction {
+              Button {
+                Task { await store.submitDecision(for: item.slug, archiveAction, feedback: "") }
+              } label: {
+                Label("Archive", systemImage: "archivebox.fill")
+              }
+              .tint(TurfTheme.muted)
+              .disabled(store.isSubmittingDecision(slug: item.slug))
+            }
+          }
         }
       }
     }

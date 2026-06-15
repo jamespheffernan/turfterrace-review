@@ -9,6 +9,7 @@ struct ReviewDetailView: View {
 
   enum InspectorMode: String, CaseIterable, Identifiable {
     case decide
+    case items
     case notes
     case chat
     case status
@@ -18,6 +19,7 @@ struct ReviewDetailView: View {
     var title: String {
       switch self {
       case .decide: return "Decide"
+      case .items: return "Items"
       case .notes: return "Notes"
       case .chat: return "Chat"
       case .status: return "Status"
@@ -27,6 +29,7 @@ struct ReviewDetailView: View {
     var icon: String {
       switch self {
       case .decide: return "checkmark.circle"
+      case .items: return "checklist"
       case .notes: return "text.quote"
       case .chat: return "bubble.left.and.bubble.right"
       case .status: return "waveform.path.ecg"
@@ -129,11 +132,27 @@ struct ReviewDetailView: View {
       html: item.displayHTML,
       baseURL: store.configuration.serverURL,
       annotations: store.annotations,
+      reviewTargets: store.reviewTargets,
       selection: $webSelection,
-      onPencilSelection: beginPencilAnnotation
+      onPencilSelection: beginPencilAnnotation,
+      onReviewTargetDecision: { key, verdict in
+        updateInlineReviewTarget(key: key, verdict: verdict, item: item)
+      }
     )
     .background(TurfTheme.paper)
     .ignoresSafeArea(.container, edges: .bottom)
+  }
+
+  private func updateInlineReviewTarget(key: String, verdict: String, item: ReviewItem) {
+    guard let target = store.reviewTargets.first(where: { $0.key == key }) else { return }
+    Task {
+      await store.updateReviewTarget(
+        target,
+        for: item.slug,
+        verdict: verdict,
+        feedback: verdict == "rejected" ? target.feedback : nil
+      )
+    }
   }
 
   private func beginPencilAnnotation(_ selection: WebSelection) {
@@ -180,6 +199,8 @@ struct ReviewDetailView: View {
     switch inspectorMode {
     case .decide:
       DecisionPanel(store: store, item: item)
+    case .items:
+      ReviewTargetsPanel(store: store, item: item)
     case .notes:
       AnnotationPanel(store: store, selection: webSelection)
     case .chat:

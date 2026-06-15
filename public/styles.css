@@ -1096,106 +1096,146 @@ main {
   }
 }
 
-/* === Audio Players (dual layout) === */
+/* === Audio players — hairline editorial === */
 .audio-players {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
-  max-width: 100%;
-  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 28px;
 }
 
-.audio-players .tts-player {
-  flex: 1 1 300px;
-  margin-bottom: 0;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.audio-players .tts-player--read-aloud {
-  flex: 0 1 380px;
-}
-
-.audio-players .tts-player--context {
-  flex: 0 1 340px;
-}
-
-@media (max-width: 600px) {
-  .audio-players {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .audio-players .tts-player,
-  .audio-players .tts-player--context {
-    flex: 0 1 auto;
-    width: 100%;
-  }
-
-  .tts-player audio,
-  .tts-player--context audio {
-    max-width: none;
-  }
-}
-
-/* === TTS Player (native audio) === */
-.tts-player {
+.audio-row {
+  --channel-color: var(--terracotta);
+  --channel-color-hover: #a8501f;
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: var(--bg-inset);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 8px 14px;
-  margin-bottom: 24px;
+  gap: 12px;
+  padding: 6px 0;
   min-width: 0;
 }
 
-.tts-label,
+.audio-row[data-channel="context"] {
+  --channel-color: var(--olive);
+  --channel-color-hover: #45593a;
+}
+
+.audio-play {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--channel-color);
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #faf8f4;
+  padding: 0;
+  transition: transform 0.18s var(--spring), background 0.18s ease;
+}
+
+.audio-play:hover {
+  transform: scale(1.08);
+  background: var(--channel-color-hover);
+}
+
+.audio-play:focus-visible {
+  outline: 2px solid var(--channel-color);
+  outline-offset: 2px;
+}
+
+.audio-icon {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+
+.audio-icon--pause { display: none; }
+.audio-row[data-state="playing"] .audio-icon--play { display: none; }
+.audio-row[data-state="playing"] .audio-icon--pause { display: block; }
+
 .audio-label {
   font-family: 'Libre Franklin', sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.14em;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-.tts-player audio {
-  flex: 1 1 180px;
-  width: 100%;
-  min-width: 0;
-  max-width: 260px;
-  height: 36px;
-}
-
-.tts-player--context audio {
-  max-width: 220px;
-}
-
-.tts-player--generating {
-  gap: 8px;
-  padding: 10px 14px;
-}
-
-.tts-spinner {
-  display: inline-block;
-  width: 14px;
+.audio-progress {
+  flex: 1;
+  min-width: 40px;
   height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--terracotta);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.audio-progress::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 1px;
+  background: var(--border);
+  transition: height 0.15s ease, background 0.15s ease;
+}
+
+.audio-progress:hover::before,
+.audio-progress:focus-visible::before {
+  height: 2px;
+  background: var(--border-light);
+}
+
+.audio-progress:focus-visible { outline: none; }
+
+.audio-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 1px;
+  width: 0%;
+  background: var(--channel-color);
+  transition: height 0.15s ease;
+  pointer-events: none;
+}
+
+.audio-progress:hover .audio-progress-fill,
+.audio-progress:focus-visible .audio-progress-fill {
+  height: 2px;
+}
+
+.audio-time {
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 4ch;
+  text-align: right;
+  transition: color 0.15s ease;
+}
+
+.audio-row[data-state="playing"] .audio-time {
+  color: var(--channel-color);
+}
+
+.audio-row audio { display: none; }
+
+@media (max-width: 480px) {
+  .audio-row { gap: 10px; }
+  .audio-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+  }
 }
 
 /* ===================================================
@@ -1399,6 +1439,53 @@ mark.annotation-highlight {
 
 mark.annotation-highlight:hover {
   background: rgba(192, 96, 48, 0.22);
+}
+
+.pencil-annotation-card {
+  margin: 0 0 1.2rem;
+  padding: 12px;
+  background: rgba(0, 124, 137, 0.07);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.pencil-annotation-card__label {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.pencil-annotation-card img {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+}
+
+.pencil-annotation-card p {
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.pencil-annotation-card__delete {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-paper);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 5px 9px;
+}
+
+.pencil-annotation-card__delete:hover {
+  color: var(--red);
 }
 
 /* --- Annotation popover --- */

@@ -45,7 +45,7 @@ struct DecisionPanel: View {
   let item: ReviewItem
 
   @State private var feedback = ""
-  @State private var pendingDecision: String?
+  @State private var feedbackValidationDecision: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -55,7 +55,7 @@ struct DecisionPanel: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 146), spacing: 10, alignment: .top)], spacing: 10) {
           ForEach(item.allowedActions, id: \.self) { action in
             Button {
-              pendingDecision = action
+              Task { await submit(action) }
             } label: {
               HStack(alignment: .center, spacing: 8) {
                 Image(systemName: DecisionActionPresentation.icon(for: action))
@@ -70,18 +70,22 @@ struct DecisionPanel: View {
               }
               .padding(12)
               .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-              .foregroundStyle(pendingDecision == action ? .white : TurfTheme.ink)
-              .background(pendingDecision == action ? DecisionActionPresentation.color(for: action) : TurfTheme.paper)
+              .foregroundStyle(.white)
+              .background(DecisionActionPresentation.color(for: action))
               .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
               .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                  .stroke(DecisionActionPresentation.color(for: action).opacity(0.35), lineWidth: 1)
+                  .stroke(actionNeedsFeedback(action) ? TurfTheme.coral.opacity(0.8) : DecisionActionPresentation.color(for: action).opacity(0.35), lineWidth: actionNeedsFeedback(action) ? 2 : 1)
               )
             }
             .buttonStyle(.plain)
-            .disabled(isSubmitting)
-            .accessibilityLabel("Choose \(DecisionActionPresentation.label(for: action))")
+            .disabled(targetGateBlocksSubmission(for: action) || isSubmitting)
+            .accessibilityLabel(DecisionActionPresentation.label(for: action))
           }
+        }
+
+        if store.reviewTargetSummary.total > 0 {
+          ReviewTargetDecisionGate(summary: store.reviewTargetSummary, isBlocking: targetGateBlocksAnySubmission)
         }
 
         VStack(alignment: .leading, spacing: 7) {
@@ -101,27 +105,6 @@ struct DecisionPanel: View {
             .disabled(isSubmitting)
             .accessibilityLabel("Decision feedback")
         }
-
-        Button {
-          Task { await submit() }
-        } label: {
-          HStack {
-            if isSubmitting {
-              ProgressView()
-                .tint(.white)
-            } else {
-              Image(systemName: "paperplane.fill")
-            }
-            Text(buttonTitle)
-              .font(.headline)
-              .lineLimit(2)
-              .minimumScaleFactor(0.88)
-              .multilineTextAlignment(.center)
-          }
-          .frame(maxWidth: .infinity, minHeight: 52)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(pendingDecision == nil || needsFeedback || isSubmitting)
       } else {
         VStack(alignment: .leading, spacing: 8) {
           Text(item.decision ?? item.status)
@@ -144,28 +127,83 @@ struct DecisionPanel: View {
   }
 
   private var needsFeedback: Bool {
-    guard let pendingDecision else { return false }
-    return DecisionActionPresentation.requiresFeedback(for: pendingDecision)
+    guard let feedbackValidationDecision else { return false }
+    return DecisionActionPresentation.requiresFeedback(for: feedbackValidationDecision)
       && feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  private var buttonTitle: String {
-    if let pendingDecision { return "Submit \(DecisionActionPresentation.label(for: pendingDecision))" }
-    return "Choose a decision"
+  private var targetGateBlocksAnySubmission: Bool {
+    item.allowedActions.contains { targetGateBlocksSubmission(for: $0) }
+  }
+
+  private func targetGateBlocksSubmission(for action: String) -> Bool {
+    store.reviewTargetSummary.total > 0
+      && !store.reviewTargetSummary.complete
+      && Self.requiresCompletedTargets(for: action)
   }
 
   private var isSubmitting: Bool {
     store.isSubmittingDecision(slug: item.slug)
   }
 
-  private func submit() async {
-    guard let pendingDecision, !isSubmitting else { return }
-    await store.submitDecision(for: item.slug, pendingDecision, feedback: feedback)
+  private func actionNeedsFeedback(_ action: String) -> Bool {
+    feedbackValidationDecision == action && needsFeedback
+  }
+
+  private func submit(_ action: String) async {
+    guard !isSubmitting, !targetGateBlocksSubmission(for: action) else { return }
+    guard !DecisionActionPresentation.requiresFeedback(for: action)
+            || !feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      feedbackValidationDecision = action
+      return
+    }
+    feedbackValidationDecision = nil
+    await store.submitDecision(for: item.slug, action, feedback: feedback)
   }
 
   private func resetDraft() {
     feedback = ""
-    pendingDecision = nil
+    feedbackValidationDecision = nil
+  }
+
+  private static func requiresCompletedTargets(for action: String) -> Bool {
+    switch action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "execute", "approve", "send":
+      return true
+    default:
+      return false
+    }
+  }
+}
+
+private struct ReviewTargetDecisionGate: View {
+  let summary: ReviewTargetSummary
+  let isBlocking: Bool
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 10) {
+      Image(systemName: isBlocking ? "exclamationmark.triangle.fill" : "checklist")
+        .foregroundStyle(isBlocking ? TurfTheme.gold : TurfTheme.accent)
+        .frame(width: 18)
+      VStack(alignment: .leading, spacing: 4) {
+        Text("\(summary.approved) yes, \(summary.rejected) no, \(summary.undecided) open")
+          .font(.caption.weight(.bold))
+          .foregroundStyle(TurfTheme.ink)
+        if isBlocking {
+          Text("Items remain open for this final action.")
+            .font(.caption)
+            .foregroundStyle(TurfTheme.muted)
+        }
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(10)
+    .background(isBlocking ? TurfTheme.gold.opacity(0.12) : TurfTheme.accent.opacity(0.1))
+    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .stroke((isBlocking ? TurfTheme.gold : TurfTheme.accent).opacity(0.28), lineWidth: 1)
+    )
   }
 }
 
