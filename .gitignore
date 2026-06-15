@@ -9,6 +9,9 @@ tts-cache/
 *.xcuserstate
 xcuserdata/
 DerivedData/
+
+# Native app local build output
+TurfReviewNative/build/
 review-packets/
 docs/audits/
 ops/

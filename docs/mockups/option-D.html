@@ -1,0 +1,123 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased;margin:0;padding:0}
+:root{
+  --paper:#F7F2E8;--panel:#FFFCF5;--ink:#211F1B;--muted:#6F6A61;
+  --hairline:#DDD1BF;--accent:#007C89;--coral:#C95F45;
+  --moss:#687F4E;--gold:#C99A38;--plum:#5B4662;
+}
+body{background:#cfc6b6;font-family:-apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif}
+.screen{width:834px;height:1194px;position:relative;overflow:hidden;background:var(--paper);
+  display:flex;flex-direction:column}
+.serif{font-family:"Charter","Iowan Old Style",Georgia,"Times New Roman",serif}
+
+/* status bar */
+.status{height:34px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;font-size:15px;font-weight:600;color:var(--ink);flex:none}
+.status .right{display:flex;gap:7px;align-items:center;font-size:13px}
+
+/* nav */
+.nav{height:52px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;border-bottom:1px solid var(--hairline);background:var(--panel);flex:none}
+.nav .back{color:var(--accent);font-size:17px;font-weight:600;display:flex;align-items:center;gap:4px}
+.nav .title{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.2px}
+.nav .tools{display:flex;gap:14px}
+.toolbtn{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);
+  font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.toolbtn svg{width:22px;height:22px;stroke:var(--ink);stroke-width:1.7;fill:none}
+
+/* document */
+.doc{flex:1;overflow:hidden;position:relative}
+.docpad{padding:38px 64px 120px}
+.eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;
+  color:var(--accent);margin-bottom:10px}
+.h1{font-size:34px;line-height:1.15;color:var(--ink);font-weight:700;margin-bottom:6px}
+.byline{font-size:13px;color:var(--muted);margin-bottom:26px}
+.p{font-size:18px;line-height:1.62;color:#33302a;margin-bottom:18px}
+.hl{background:rgba(201,154,56,.28);border-bottom:2px solid var(--gold);padding:1px 2px;
+  border-radius:2px;position:relative}
+.h2{font-size:21px;font-weight:700;color:var(--ink);margin:24px 0 12px}
+
+/* inline review item */
+.item{border:1px solid var(--hairline);border-left:4px solid var(--accent);background:var(--panel);
+  border-radius:10px;padding:16px 18px;margin:18px 0;display:flex;gap:14px;align-items:center}
+.item .q{flex:1;font-size:16px;line-height:1.45;color:var(--ink)}
+.item .q b{font-weight:700}
+.chip{font-size:14px;font-weight:700;padding:9px 16px;border-radius:999px;border:1.5px solid;
+  display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chip.yes{color:#fff;background:var(--moss);border-color:var(--moss)}
+.chip.no{color:var(--coral);background:#fff;border-color:var(--coral)}
+
+/* pencil cursor */
+.pencil{position:absolute;width:120px;height:120px;pointer-events:none;filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))}
+
+/* generic floating shadow */
+.float{box-shadow:0 18px 50px rgba(33,31,27,.22),0 2px 8px rgba(33,31,27,.12)}
+
+/* caption ribbon */
+.caption{position:absolute;left:0;right:0;bottom:0;background:var(--ink);color:#f3ecdd;
+  padding:14px 28px;font-size:14px;line-height:1.4;display:flex;gap:10px;align-items:baseline}
+.caption b{color:var(--gold);font-weight:700}
+.tag{position:absolute;top:14px;left:14px;background:var(--ink);color:var(--paper);
+  font-size:12px;font-weight:700;letter-spacing:.6px;padding:7px 13px;border-radius:8px;text-transform:uppercase}
+
+/* dimmer */
+.dim{position:absolute;inset:0;background:rgba(33,31,27,.34)}
+</style></head>
+<body><div class="screen" id="optD">
+    <div class="status"><span>9:41</span>
+  <span class="right">Turf&nbsp;Review&nbsp;&nbsp;<span style="letter-spacing:-1px">●●●</span>&nbsp;Wi-Fi&nbsp;&nbsp;100%▮</span></div>
+    <div class="nav">
+    <div class="back">‹&nbsp;Queue</div>
+    <div class="title">Q3 Infra Migration — review</div>
+    <div class="tools"><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4V5z"/></svg><span>Ask</span></div><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 3 14 3-11 2 5h5"/></svg><span>Proof</span></div></div>
+  </div>
+    <div class="doc"><div style="display:flex;height:100%">
+    <div class="docpad serif" style="flex:1;padding:34px 30px 40px 64px">
+      <div class="eyebrow">Decision packet · pending</div>
+      <div class="h1" style="font-size:30px">Migrate the ingest tier to the new queue</div>
+      <div class="byline">Platform pod · 1,840 words · 6 items</div>
+      <p class="p" style="font-size:17px">The current ingest path routes every event through a single
+        synchronous worker pool. Under the Q2 peak it sat at <span class="hl">94% saturation for nine
+        hours</span> and dropped 0.3% of events.</p>
+      <div class="item" style="margin-right:0">
+        <div class="q" style="font-size:15px"><b>Item 2.</b> Hard cutover instead of dual-write?</div>
+        <div class="chip yes" style="padding:7px 12px;font-size:13px">✓</div>
+        <div class="chip no" style="padding:7px 12px;font-size:13px">✗</div>
+      </div>
+      <p class="p" style="font-size:17px">The team prefers a hard cutover at low traffic with a tested
+        rollback, arguing dual-write doubles the surface for subtle drift.</p>
+      <p class="p" style="font-size:17px">A failed cutover reverts in under four minutes by flipping the
+        router flag; the queue retains 24h so no window is unrecoverable.</p>
+    </div>
+    <div style="width:250px;flex:none;border-left:1px solid var(--hairline);background:rgba(255,252,245,.6);
+      position:relative;padding:34px 18px">
+      <div style="position:absolute;top:120px;left:14px;right:14px">
+    <div style="display:flex;align-items:center;gap:6px;color:var(--accent);font-size:11px;font-weight:700;margin-bottom:5px">
+      <span style="font-size:14px">✎</span> note</div>
+    <div class="serif" style="font-size:13px;line-height:1.4;color:var(--ink);background:rgba(201,154,56,.14);
+      border-left:3px solid var(--gold);border-radius:6px;padding:8px 10px">“nine hours is past our SLO — call it out in the post.”</div></div>
+      <div style="position:absolute;top:300px;left:14px;right:14px">
+    <div style="display:flex;align-items:center;gap:6px;color:var(--accent);font-size:11px;font-weight:700;margin-bottom:5px">
+      <span style="font-size:14px">✎</span> note</div>
+    <div class="serif" style="font-size:13px;line-height:1.4;color:var(--ink);background:rgba(201,154,56,.14);
+      border-left:3px solid var(--gold);border-radius:6px;padding:8px 10px">agree on hard cutover — but only after the replay test passes.</div></div>
+      <div class="float" style="position:absolute;left:14px;right:14px;bottom:92px;background:var(--panel);
+        border:1px solid var(--hairline);border-radius:14px;padding:12px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;text-align:center">Decision</div>
+        <div style="font-size:15px;font-weight:700;text-align:center;padding:11px 0;border-radius:10px;margin-bottom:8px;
+    color:#fff;background:#007C89;border:1.5px solid #007C89">Send</div><div style="font-size:15px;font-weight:700;text-align:center;padding:11px 0;border-radius:10px;margin-bottom:8px;
+    color:#C99A38;background:#fff;border:1.5px solid #C99A38">Edit</div><div style="font-size:15px;font-weight:700;text-align:center;padding:11px 0;border-radius:10px;margin-bottom:8px;
+    color:#C95F45;background:#fff;border:1.5px solid #C95F45">Kill</div>
+      </div>
+    </div></div></div>
+    <div class="pencil" style="left:300px;top:430px"><svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+    <g transform="rotate(35 60 60)">
+      <rect x="50" y="6" width="20" height="74" rx="9" fill="#f5f0e6" stroke="#cdbfa6" stroke-width="1.5"/>
+      <rect x="50" y="6" width="20" height="16" rx="9" fill="#211F1B"/>
+      <rect x="56" y="22" width="8" height="58" fill="#e9e0cd"/>
+      <path d="M50 80 L60 104 L70 80 Z" fill="#f0e7d5" stroke="#cdbfa6" stroke-width="1.5"/>
+      <path d="M55 92 L60 104 L65 92 Z" fill="#211F1B"/>
+    </g></svg></div>
+    <div class="caption"><b>D · Pencil Margin.</b> A Books-style gutter: handwritten notes drop as pins beside the line they anchor to, so notes are <i>ambiently visible</i> with no panel. The decision is a compact stack in the margin foot. Chat/Proof are toolbar popovers.</div>
+    <div class="tag">Option D</div>
+  </div></body></html>

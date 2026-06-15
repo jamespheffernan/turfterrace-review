@@ -1,0 +1,137 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased;margin:0;padding:0}
+:root{
+  --paper:#F7F2E8;--panel:#FFFCF5;--ink:#211F1B;--muted:#6F6A61;
+  --hairline:#DDD1BF;--accent:#007C89;--coral:#C95F45;
+  --moss:#687F4E;--gold:#C99A38;--plum:#5B4662;
+}
+body{background:#cfc6b6;font-family:-apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif}
+.screen{width:834px;height:1194px;position:relative;overflow:hidden;background:var(--paper);
+  display:flex;flex-direction:column}
+.serif{font-family:"Charter","Iowan Old Style",Georgia,"Times New Roman",serif}
+
+/* status bar */
+.status{height:34px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;font-size:15px;font-weight:600;color:var(--ink);flex:none}
+.status .right{display:flex;gap:7px;align-items:center;font-size:13px}
+
+/* nav */
+.nav{height:52px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;border-bottom:1px solid var(--hairline);background:var(--panel);flex:none}
+.nav .back{color:var(--accent);font-size:17px;font-weight:600;display:flex;align-items:center;gap:4px}
+.nav .title{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.2px}
+.nav .tools{display:flex;gap:14px}
+.toolbtn{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);
+  font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.toolbtn svg{width:22px;height:22px;stroke:var(--ink);stroke-width:1.7;fill:none}
+
+/* document */
+.doc{flex:1;overflow:hidden;position:relative}
+.docpad{padding:38px 64px 120px}
+.eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;
+  color:var(--accent);margin-bottom:10px}
+.h1{font-size:34px;line-height:1.15;color:var(--ink);font-weight:700;margin-bottom:6px}
+.byline{font-size:13px;color:var(--muted);margin-bottom:26px}
+.p{font-size:18px;line-height:1.62;color:#33302a;margin-bottom:18px}
+.hl{background:rgba(201,154,56,.28);border-bottom:2px solid var(--gold);padding:1px 2px;
+  border-radius:2px;position:relative}
+.h2{font-size:21px;font-weight:700;color:var(--ink);margin:24px 0 12px}
+
+/* inline review item */
+.item{border:1px solid var(--hairline);border-left:4px solid var(--accent);background:var(--panel);
+  border-radius:10px;padding:16px 18px;margin:18px 0;display:flex;gap:14px;align-items:center}
+.item .q{flex:1;font-size:16px;line-height:1.45;color:var(--ink)}
+.item .q b{font-weight:700}
+.chip{font-size:14px;font-weight:700;padding:9px 16px;border-radius:999px;border:1.5px solid;
+  display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chip.yes{color:#fff;background:var(--moss);border-color:var(--moss)}
+.chip.no{color:var(--coral);background:#fff;border-color:var(--coral)}
+
+/* pencil cursor */
+.pencil{position:absolute;width:120px;height:120px;pointer-events:none;filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))}
+
+/* generic floating shadow */
+.float{box-shadow:0 18px 50px rgba(33,31,27,.22),0 2px 8px rgba(33,31,27,.12)}
+
+/* caption ribbon */
+.caption{position:absolute;left:0;right:0;bottom:0;background:var(--ink);color:#f3ecdd;
+  padding:14px 28px;font-size:14px;line-height:1.4;display:flex;gap:10px;align-items:baseline}
+.caption b{color:var(--gold);font-weight:700}
+.tag{position:absolute;top:14px;left:14px;background:var(--ink);color:var(--paper);
+  font-size:12px;font-weight:700;letter-spacing:.6px;padding:7px 13px;border-radius:8px;text-transform:uppercase}
+
+/* dimmer */
+.dim{position:absolute;inset:0;background:rgba(33,31,27,.34)}
+</style></head>
+<body><div class="screen" id="optC">
+    <div class="status"><span>9:41</span>
+  <span class="right">Turf&nbsp;Review&nbsp;&nbsp;<span style="letter-spacing:-1px">●●●</span>&nbsp;Wi-Fi&nbsp;&nbsp;100%▮</span></div><div class="nav">
+    <div class="back">‹&nbsp;Queue</div>
+    <div class="title">Q3 Infra Migration — review</div>
+    <div class="tools"></div>
+  </div>
+    <div class="doc"><div class="docpad serif" style="padding:30px 64px 40px">
+    <div class="eyebrow">Decision packet · pending</div>
+    <div class="h1">Migrate the ingest tier to the new queue</div>
+    <div class="byline">Drafted by the platform pod · 1,840 words · 6 review items</div>
+    <p class="p">The current ingest path routes every event through a single synchronous
+      worker pool. Under the Q2 peak it sat at <span class="hl">94% saturation for nine
+      hours</span> and dropped 0.3% of events on the floor — small, but the wrong events.</p>
+    <p class="p">This plan moves ingest behind a durable queue so spikes buffer instead of
+      drop, and so we can replay a bad window without a redeploy.</p>
+    <div class="item">
+      <div class="q"><b>Item 2.</b> Cut over writes in a single switch rather than a dual-write window?</div>
+      <div class="chip yes">✓ Yes</div>
+      <div class="chip no">✗ No</div>
+    </div>
+    <p class="p">The team prefers a hard cutover at low traffic with a tested rollback,
+      arguing dual-write doubles the surface for subtle drift.</p>
+    <div class="h2 serif">Rollback &amp; blast radius</div>
+    <p class="p">A failed cutover reverts in under four minutes by flipping the router flag.
+      The queue retains 24h, so no window is unrecoverable.</p>
+  </div></div>
+    <div class="dim" style="background:rgba(33,31,27,.10);top:52px;bottom:560px;z-index:2"></div>
+    <div class="float" style="position:absolute;left:0;right:0;bottom:0;height:560px;
+    background:var(--panel);border-top:1px solid var(--hairline);border-radius:22px 22px 0 0;z-index:3;
+    padding:14px 28px 28px">
+    <div style="width:42px;height:5px;border-radius:3px;background:var(--hairline);margin:0 auto 16px"></div>
+    <div style="display:flex;gap:8px;background:#efe7d6;border-radius:11px;padding:5px;margin-bottom:20px">
+      <div style="flex:1;text-align:center;font-size:15px;font-weight:700;padding:9px 0;border-radius:8px;
+    color:#211F1B;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)">Decide</div><div style="flex:1;text-align:center;font-size:15px;font-weight:600;padding:9px 0;border-radius:8px;
+    color:#6F6A61;background:transparent;">Markup</div><div style="flex:1;text-align:center;font-size:15px;font-weight:600;padding:9px 0;border-radius:8px;
+    color:#6F6A61;background:transparent;">Ask</div><div style="flex:1;text-align:center;font-size:15px;font-weight:600;padding:9px 0;border-radius:8px;
+    color:#6F6A61;background:transparent;">♪ Proof</div>
+    </div>
+    <div class="serif" style="font-size:21px;font-weight:700;color:var(--ink);margin-bottom:4px">Choose the next action</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:18px">Feedback travels with the decision and existing annotations.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:12px;border:1.5px solid #007C89;
+    background:#007C89;border-radius:13px;padding:15px 16px">
+    <div style="width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.25);flex:none"></div>
+    <div><div style="font-size:17px;font-weight:700;color:#fff">Send</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.85)">Ship as written</div></div></div>
+      <div style="display:flex;align-items:center;gap:12px;border:1.5px solid #DDD1BF;
+    background:#fff;border-radius:13px;padding:15px 16px">
+    <div style="width:34px;height:34px;border-radius:9px;background:#C99A38;flex:none"></div>
+    <div><div style="font-size:17px;font-weight:700;color:#211F1B">Edit / rework</div>
+      <div style="font-size:12px;color:#6F6A61">Send back with notes</div></div></div>
+      <div style="display:flex;align-items:center;gap:12px;border:1.5px solid #DDD1BF;
+    background:#fff;border-radius:13px;padding:15px 16px">
+    <div style="width:34px;height:34px;border-radius:9px;background:#C95F45;flex:none"></div>
+    <div><div style="font-size:17px;font-weight:700;color:#211F1B">Kill</div>
+      <div style="font-size:12px;color:#6F6A61">Stop here</div></div></div>
+      <div style="display:flex;align-items:center;gap:12px;border:1.5px solid #DDD1BF;
+    background:#fff;border-radius:13px;padding:15px 16px">
+    <div style="width:34px;height:34px;border-radius:9px;background:#5B4662;flex:none"></div>
+    <div><div style="font-size:17px;font-weight:700;color:#211F1B">Park</div>
+      <div style="font-size:12px;color:#6F6A61">Decide later</div></div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--hairline);padding-top:16px">
+      <div style="width:26px;height:26px;border-radius:7px;background:var(--coral);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px">3</div>
+      <div style="font-size:15px;color:var(--ink)">review items still unresolved —
+        <span style="color:var(--accent);font-weight:700">jump to first ▸</span></div>
+    </div>
+  </div>
+    <div class="caption"><b>C · Bottom Sheet with detents</b> (shown at the medium detent). A native resizable sheet over a full-bleed reader. Collapsed = a slim handle with the recommended action + quick ✓/✗; drag up for the rest. Identical in portrait &amp; landscape.</div>
+    <div class="tag" style="background:var(--accent)">Option C · recommended</div>
+  </div></body></html>

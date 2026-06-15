@@ -17,6 +17,7 @@
 		3636210BBA55F40EC381793B /* ReviewTargetsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */; };
 		3CA56ED62FE5FAE596CC1CFF /* ReviewDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7956F02998206115AC6695FD /* ReviewDetailView.swift */; };
 		435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* DecisionDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */; };
 		533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */; };
 		57D44A1E5AA9D90DCC15BB5E /* TurfReviewClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */; };
 		59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */; };
@@ -63,6 +64,7 @@
 		BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStoreTests.swift; sourceTree = "<group>"; };
 		D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPanel.swift; sourceTree = "<group>"; };
 		E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionPanel.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionDock.swift; sourceTree = "<group>"; };
 		FCFA41A6690E33423E8FBF58 /* TurfModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -91,6 +93,7 @@
 				BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */,
 				D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */,
 				E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */,
+				B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */,
 				A501C01C0482C899B83F11CB /* QueueView.swift */,
 				7956F02998206115AC6695FD /* ReviewDetailView.swift */,
 				AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */,
@@ -254,6 +257,7 @@
 				1FB2ACA60BF45AA4402B08D5 /* AudioPlayerBar.swift in Sources */,
 				59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */,
 				435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* DecisionDock.swift in Sources */,
 				F9A83C2C607D7FC3FE75F3BF /* DemoData.swift in Sources */,
 				533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */,
 				BC7D8AE9C6367952B7D8EC7E /* QueueView.swift in Sources */,

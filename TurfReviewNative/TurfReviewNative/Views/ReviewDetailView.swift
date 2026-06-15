@@ -2,45 +2,28 @@ import SwiftUI
 
 struct ReviewDetailView: View {
   @ObservedObject var store: ReviewStore
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var webSelection = WebSelection()
-  @State private var inspectorMode: InspectorMode = .decide
   @State private var pencilAnnotationDraft: PencilAnnotationDraft?
 
-  enum InspectorMode: String, CaseIterable, Identifiable {
-    case decide
-    case items
-    case notes
-    case chat
-    case status
-
-    var id: String { rawValue }
-
-    var title: String {
-      switch self {
-      case .decide: return "Decide"
-      case .items: return "Items"
-      case .notes: return "Notes"
-      case .chat: return "Chat"
-      case .status: return "Status"
-      }
-    }
-
-    var icon: String {
-      switch self {
-      case .decide: return "checkmark.circle"
-      case .items: return "checklist"
-      case .notes: return "text.quote"
-      case .chat: return "bubble.left.and.bubble.right"
-      case .status: return "waveform.path.ecg"
-      }
-    }
-  }
+  @State private var showItems = false
+  @State private var showNotes = false
+  @State private var showAsk = false
+  @State private var showProof = false
+  @State private var showDecisionMore = false
 
   var body: some View {
     Group {
       if let item = store.selectedItem {
-        content(for: item)
+        reader(for: item)
+          .overlay(alignment: .bottom) {
+            DecisionDock(store: store, item: item) {
+              showDecisionMore = true
+            }
+            .popover(isPresented: $showDecisionMore) {
+              summonPanel { DecisionPanel(store: store, item: item) }
+            }
+            .padding(.bottom, 24)
+          }
       } else {
         ContentUnavailableView(
           "Select a review",
@@ -52,6 +35,7 @@ struct ReviewDetailView: View {
     }
     .navigationTitle(store.selectedItem == nil ? "Review" : "")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar { summonToolbar }
     .overlay(alignment: .topTrailing) {
       if store.detailLoading {
         DetailLoadingBadge()
@@ -62,6 +46,11 @@ struct ReviewDetailView: View {
     .onChange(of: store.selectedItem?.slug) { _, _ in
       webSelection = WebSelection()
       pencilAnnotationDraft = nil
+      showItems = false
+      showNotes = false
+      showAsk = false
+      showProof = false
+      showDecisionMore = false
     }
     .sheet(item: $pencilAnnotationDraft) { draft in
       AnnotationComposer(quote: draft.selection.text) { comment in
@@ -72,62 +61,16 @@ struct ReviewDetailView: View {
           comment: comment
         )
         if didSave {
-          inspectorMode = .notes
+          showNotes = true
         }
         return didSave
       }
     }
   }
 
-  @ViewBuilder
-  private func content(for item: ReviewItem) -> some View {
-    if horizontalSizeClass == .regular {
-      GeometryReader { proxy in
-        if proxy.size.width >= 760 {
-          HStack(spacing: 0) {
-            reader(for: item)
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-              .background(TurfTheme.hairline)
-            inspector(for: item)
-              .frame(width: min(360, max(320, proxy.size.width * 0.3)))
-              .background(TurfTheme.panel)
-          }
-          .background(TurfTheme.paper)
-        } else {
-          VStack(spacing: 0) {
-            readerBody(for: item)
-              .frame(minHeight: 680)
-            Divider()
-            ScrollView {
-              mobileInspector(for: item)
-                .padding(16)
-            }
-            .frame(maxHeight: 360)
-            .background(TurfTheme.panel)
-          }
-          .background(TurfTheme.paper)
-        }
-      }
-    } else {
-      ScrollView {
-        VStack(spacing: 14) {
-          readerBody(for: item)
-            .frame(minHeight: 560)
-          mobileInspector(for: item)
-        }
-        .padding(12)
-      }
-      .background(TurfTheme.paper)
-    }
-  }
+  // MARK: Reader (full-bleed)
 
   private func reader(for item: ReviewItem) -> some View {
-    readerBody(for: item)
-      .background(TurfTheme.paper)
-  }
-
-  private func readerBody(for item: ReviewItem) -> some View {
     HTMLDocumentView(
       html: item.displayHTML,
       baseURL: store.configuration.serverURL,
@@ -139,9 +82,67 @@ struct ReviewDetailView: View {
         updateInlineReviewTarget(key: key, verdict: verdict, item: item)
       }
     )
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(TurfTheme.paper)
     .ignoresSafeArea(.container, edges: .bottom)
   }
+
+  // MARK: Summon toolbar (Items · Notes · Ask · Proof)
+
+  @ToolbarContentBuilder
+  private var summonToolbar: some ToolbarContent {
+    if let item = store.selectedItem {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        SummonButton(
+          title: "Items",
+          systemImage: "checklist",
+          badge: store.reviewTargetSummary.undecided,
+          isPresented: $showItems
+        ) {
+          summonPanel { ReviewTargetsPanel(store: store, item: item) }
+        }
+
+        SummonButton(
+          title: "Notes",
+          systemImage: "text.quote",
+          badge: store.annotations.count,
+          isPresented: $showNotes
+        ) {
+          summonPanel { AnnotationPanel(store: store, selection: webSelection) }
+        }
+
+        SummonButton(
+          title: "Ask",
+          systemImage: "bubble.left.and.bubble.right",
+          badge: store.chatMessages.count,
+          isPresented: $showAsk
+        ) {
+          summonPanel { ChatPanel(store: store) }
+        }
+
+        SummonButton(
+          title: "Proof",
+          systemImage: "waveform.path.ecg",
+          badge: 0,
+          isPresented: $showProof
+        ) {
+          summonPanel { StatusPanel(store: store, item: item) }
+        }
+      }
+    }
+  }
+
+  private func summonPanel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    ScrollView {
+      content()
+        .padding(18)
+    }
+    .frame(minWidth: 360, idealWidth: 380, maxWidth: 440, minHeight: 440, idealHeight: 560)
+    .background(TurfTheme.panel)
+    .presentationDetents([.medium, .large])
+  }
+
+  // MARK: Inline interactions
 
   private func updateInlineReviewTarget(key: String, verdict: String, item: ReviewItem) {
     guard let target = store.reviewTargets.first(where: { $0.key == key }) else { return }
@@ -161,53 +162,35 @@ struct ReviewDetailView: View {
     webSelection = selection
     pencilAnnotationDraft = PencilAnnotationDraft(slug: slug, selection: selection)
   }
+}
 
-  private func inspector(for item: ReviewItem) -> some View {
-    VStack(spacing: 0) {
-      Picker("Inspector", selection: $inspectorMode) {
-        ForEach(InspectorMode.allCases) { mode in
-          Label(mode.title, systemImage: mode.icon).tag(mode)
+/// A toolbar summon icon with a count badge and an attached popover (sheet on compact).
+private struct SummonButton<Panel: View>: View {
+  let title: String
+  let systemImage: String
+  let badge: Int
+  @Binding var isPresented: Bool
+  @ViewBuilder var panel: () -> Panel
+
+  var body: some View {
+    Button {
+      isPresented = true
+    } label: {
+      Image(systemName: systemImage)
+        .overlay(alignment: .topTrailing) {
+          if badge > 0 {
+            Text("\(min(badge, 99))")
+              .font(.system(size: 10, weight: .bold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 4)
+              .frame(minWidth: 15, minHeight: 15)
+              .background(TurfTheme.accent, in: Capsule())
+              .offset(x: 9, y: -9)
+          }
         }
-      }
-      .pickerStyle(.segmented)
-      .padding(14)
-
-      Divider()
-
-      ScrollView {
-        inspectorContent(for: item)
-          .padding(14)
-      }
     }
-  }
-
-  private func mobileInspector(for item: ReviewItem) -> some View {
-    VStack(spacing: 12) {
-      Picker("Inspector", selection: $inspectorMode) {
-        ForEach(InspectorMode.allCases) { mode in
-          Label(mode.title, systemImage: mode.icon).tag(mode)
-        }
-      }
-      .pickerStyle(.segmented)
-
-      inspectorContent(for: item)
-    }
-  }
-
-  @ViewBuilder
-  private func inspectorContent(for item: ReviewItem) -> some View {
-    switch inspectorMode {
-    case .decide:
-      DecisionPanel(store: store, item: item)
-    case .items:
-      ReviewTargetsPanel(store: store, item: item)
-    case .notes:
-      AnnotationPanel(store: store, selection: webSelection)
-    case .chat:
-      ChatPanel(store: store)
-    case .status:
-      StatusPanel(store: store, item: item)
-    }
+    .accessibilityLabel(badge > 0 ? "\(title), \(badge)" : title)
+    .popover(isPresented: $isPresented) { panel() }
   }
 }
 

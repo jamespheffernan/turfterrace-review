@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Turf Review native — UI options</title>
+<style>
+  :root{--paper:#F7F2E8;--panel:#FFFCF5;--ink:#211F1B;--muted:#6F6A61;--hairline:#DDD1BF;--accent:#007C89;--gold:#C99A38}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#2a2722;color:var(--paper);font-family:-apple-system,"SF Pro Text",system-ui,sans-serif;
+    padding:40px 24px 80px}
+  header{max-width:1100px;margin:0 auto 8px}
+  h1{font-size:30px;font-weight:700;letter-spacing:.2px}
+  .sub{color:#bdb3a1;font-size:16px;margin-top:8px;line-height:1.5;max-width:760px}
+  .nav{max-width:1100px;margin:24px auto 36px;display:flex;flex-wrap:wrap;gap:10px}
+  .nav a{color:var(--ink);background:var(--paper);text-decoration:none;font-size:14px;font-weight:600;
+    padding:9px 16px;border-radius:999px}
+  .nav a.rec{background:var(--accent);color:#fff}
+  .grid{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+  .card{scroll-margin-top:20px}
+  .card h2{font-size:22px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:12px}
+  .badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;background:var(--accent);
+    color:#fff;padding:4px 10px;border-radius:6px}
+  .card p{color:#cfc6b6;font-size:15px;line-height:1.55;margin:6px 0 18px;max-width:820px}
+  .shot{display:block;width:100%;max-width:560px;border-radius:14px;border:1px solid #4a463e;
+    box-shadow:0 18px 50px rgba(0,0,0,.4)}
+  .row{display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap}
+  .pros{font-size:14px;line-height:1.7;color:#cfc6b6;flex:1;min-width:260px}
+  .pros b{color:var(--gold)}
+  .pros .con b{color:#d98b73}
+  a.live{color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;display:inline-block;margin-top:14px}
+  footer{max-width:1100px;margin:60px auto 0;color:#8d857672;font-size:13px;border-top:1px solid #4a463e;padding-top:20px;color:#9b9385}
+</style>
+</head>
+<body>
+<header>
+  <h1>Turf Review (native iPad) — UI options</h1>
+  <p class="sub">Five ways to surface the review controls without the bottom-bar / narrow-column reflow.
+    All keep the reader full-bleed and float everything else. Shots are iPad-portrait (the painful case).
+    Tap “open live” on any card to see the raw mockup full-size.</p>
+</header>
+
+<nav class="nav">
+  <a href="#A">A · Decision Dock</a>
+  <a href="#B">B · Edge Rail + Drawer</a>
+  <a class="rec" href="#C">C · Bottom Sheet ★</a>
+  <a href="#D">D · Pencil Margin</a>
+  <a href="#E">E · Pencil HUD</a>
+</nav>
+
+<div class="grid">
+
+  <section class="card" id="A">
+    <h2>A · Decision Dock</h2>
+    <p>Full-width reader. One floating pill always shows the recommended verdict plus a second option; ⋯ opens the full action set. Items &amp; notes act inline on the page.</p>
+    <div class="row">
+      <img class="shot" src="option-A.png" alt="Option A">
+      <div class="pros">
+        <b>For:</b> max reading width; the decision is unmissable; nothing ever reflows.<br>
+        <span class="con"><b>Against:</b></span> dock floats over content; notes list is one tap away rather than always visible.
+        <br><a class="live" href="option-A.html" target="_blank">open live ↗</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="B">
+    <h2>B · Edge Rail + Overlay Drawer</h2>
+    <p>A thin always-on trailing rail. Tap an icon — or flick the Pencil in from the edge — and a drawer slides <i>over</i> the dimmed reader. The reader never resizes; closing returns full width.</p>
+    <div class="row">
+      <img class="shot" src="option-B.png" alt="Option B">
+      <div class="pros">
+        <b>For:</b> all functions one gesture away; reader never permanently shrinks; familiar Mail/Notes feel.<br>
+        <span class="con"><b>Against:</b></span> still a persistent ~56pt rail; overlay-over-text feels heavy if opened a lot.
+        <br><a class="live" href="option-B.html" target="_blank">open live ↗</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="C">
+    <h2>C · Bottom Sheet with detents <span class="badge">recommended</span></h2>
+    <p>A native resizable sheet over a full-bleed reader (shown at the medium detent). Collapsed = a slim handle with the recommended action + quick ✓/✗; drag up for Markup / Ask / Proof. Identical in portrait &amp; landscape.</p>
+    <div class="row">
+      <img class="shot" src="option-C.png" alt="Option C">
+      <div class="pros">
+        <b>For:</b> smallest, most native fix; one component, one gesture; reader never horizontally squeezed; scales from a glance to full work.<br>
+        <span class="con"><b>Against:</b></span> at the large detent it covers the reader (expected for sheets); the collapsed quick-actions must be genuinely 1-tap.
+        <br><a class="live" href="option-C.html" target="_blank">open live ↗</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="D">
+    <h2>D · Pencil Margin (Books-style)</h2>
+    <p>A generous gutter: handwritten notes drop as pins beside the line they anchor to, so notes are <i>ambiently visible</i> with no panel. The decision is a compact stack in the margin foot. Chat/Proof are toolbar popovers.</p>
+    <div class="row">
+      <img class="shot" src="option-D.png" alt="Option D">
+      <div class="pros">
+        <b>For:</b> notes stay visible (ideal for a review tool); deeply Pencil-native; nothing covers the text.<br>
+        <span class="con"><b>Against:</b></span> biggest build (margin-anchoring in the web doc); decision chips compete with the margin in narrow portrait.
+        <br><a class="live" href="option-D.html" target="_blank">open live ↗</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="E">
+    <h2>E · Pencil HUD</h2>
+    <p>The reader is 100% clean. As the Pencil approaches the screen a floating palette appears under your hand — Annotate · Highlight · Decide — and fades when you lift away. Touch users get the same HUD from the nav button.</p>
+    <div class="row">
+      <img class="shot" src="option-E.png" alt="Option E">
+      <div class="pros">
+        <b>For:</b> most “magical” / Pencil-centric; reader is fully clean when not marking up.<br>
+        <span class="con"><b>Against:</b></span> needs Pencil-hover hardware (touch fallback required); discoverability risk; summons the core action rather than keeping it on-screen.
+        <br><a class="live" href="option-E.html" target="_blank">open live ↗</a>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>Mockups generated locally · palette matches TurfTheme.swift · written notes in docs/turf-review-native-ui-redesign.md</footer>
+</body>
+</html>
