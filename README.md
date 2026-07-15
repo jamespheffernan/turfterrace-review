@@ -2,6 +2,19 @@
 
 Review queue and decision surface for Turf Terrace workstreams.
 
+## Setup
+
+Turf Review requires Node.js 22.
+
+```bash
+npm ci
+cp .env.example .env
+npm test
+npm start
+```
+
+Replace the example values in `.env` before exposing the server outside a local development environment. The native SwiftUI client lives in `TurfReviewNative/` and can be opened with Xcode.
+
 ## Current Model
 
 - Review items use canonical category-driven decisions.
@@ -26,16 +39,16 @@ Review queue and decision surface for Turf Terrace workstreams.
 
 ## Important Paths
 
-- App: [server.js](/Users/username/GitHub/turfterrace-review/server.js)
-- Architecture note: [ARCHITECTURE.md](/Users/username/GitHub/turfterrace-review/ARCHITECTURE.md)
-- Routing helpers: [lib/review-routing.js](/Users/username/GitHub/turfterrace-review/lib/review-routing.js)
-- Decision contract: [lib/reviews/decision-contract.js](/Users/username/GitHub/turfterrace-review/lib/reviews/decision-contract.js)
-- Decision orchestrator: [lib/reviews/orchestrator.js](/Users/username/GitHub/turfterrace-review/lib/reviews/orchestrator.js)
-- OpenClaw client: [lib/openclaw.js](/Users/username/GitHub/turfterrace-review/lib/openclaw.js)
-- Chat routes/context: [lib/chat/routes.js](/Users/username/GitHub/turfterrace-review/lib/chat/routes.js), [lib/chat/openclaw-context.js](/Users/username/GitHub/turfterrace-review/lib/chat/openclaw-context.js)
-- Publish script: [publish-review.sh](/Users/username/GitHub/turfterrace-review/publish-review.sh)
-- Pending-item migration config: [scripts/pending-item-migration.json](/Users/username/GitHub/turfterrace-review/scripts/pending-item-migration.json)
-- Legacy review-doc source repo: `/Users/username/GitHub/turfterrace-review-docs`
+- App: [server.js](server.js)
+- Architecture note: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Routing helpers: [lib/review-routing.js](lib/review-routing.js)
+- Decision contract: [lib/reviews/decision-contract.js](lib/reviews/decision-contract.js)
+- Decision orchestrator: [lib/reviews/orchestrator.js](lib/reviews/orchestrator.js)
+- OpenClaw client: [lib/openclaw.js](lib/openclaw.js)
+- Chat routes/context: [lib/chat/routes.js](lib/chat/routes.js), [lib/chat/openclaw-context.js](lib/chat/openclaw-context.js)
+- Publish script: [publish-review.sh](publish-review.sh)
+- Pending-item migration example: [scripts/pending-item-migration.example.json](scripts/pending-item-migration.example.json)
+- Native client: [TurfReviewNative](TurfReviewNative)
 
 ## Legacy Pending Backfill
 
@@ -45,11 +58,20 @@ The 5 previously pending legacy items were moved onto the git-backed review-docs
 
 ```bash
 npm test
-./publish-review.sh path/to/file.md "Title" category
-node scripts/migrate-pending-items.js --config scripts/pending-item-migration.json
+REVIEW_USER=reviewer REVIEW_PASSWORD='your-password' \
+  ./publish-review.sh path/to/file.md "Title" category
+node scripts/migrate-pending-items.js --config scripts/pending-item-migration.example.json
 curl -u "$REVIEW_USER:$REVIEW_PASSWORD" /api/items/:slug/actions
 ```
 
 For isolated local smoke runs, set `TURF_REVIEW_DATA_DIR` to a temporary directory. Set `OPENCLAW_TOKEN` or `OPENCLAW_GATEWAY_TOKEN` for review-aware chat and decision execution.
 
 Set `TURF_REVIEW_WEB_ONLY=1` only when the process should not execute downstream actions or drain Telegram notifications.
+
+## Security and Privacy
+
+Do not commit `.env` files, credentials, SQLite databases, review source documents, uploads, generated HTML, or text-to-speech media. The included publish helper reads Basic Auth credentials from `REVIEW_USER` and `REVIEW_PASSWORD`; it does not contain defaults.
+
+## License
+
+No license is currently granted. You may inspect and learn from the source, but reuse requires the copyright holder's permission.

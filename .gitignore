@@ -1,8 +1,11 @@
 node_modules/
-data/*.db
 .env
+.DS_Store
 data/
 tts-cache/
+*.db
+*.db-shm
+*.db-wal
 *.xcuserstate
 xcuserdata/
 DerivedData/
