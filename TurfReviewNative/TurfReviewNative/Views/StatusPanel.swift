@@ -1,57 +1,69 @@
 import SwiftUI
 
 struct StatusPanel: View {
-  @ObservedObject var store: ReviewStore
+  let store: ReviewStore
   let item: ReviewItem
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: TurfSpacing.sectionGap) {
       SectionHeader(title: "Proof and playback", subtitle: "Track downstream request state, retry blocked work, and play generated audio.")
 
-      VStack(spacing: 10) {
-        AudioPlayerBar(
-          title: "Read aloud",
-          subtitle: nil,
-          url: store.absoluteAudioURL(store.ttsStatus?.url),
-          status: store.ttsStatus?.status ?? item.ttsStatus
-        )
-        AudioPlayerBar(
-          title: "Context memo",
-          subtitle: store.contextStatus?.summary ?? item.contextSummary,
-          url: store.absoluteAudioURL(store.contextStatus?.url),
-          status: store.contextStatus?.status ?? item.contextStatus
-        )
-      }
-
-      if let message = item.effectiveActionMessage {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(ReviewDisplayText.statusLabel(item.effectiveActionStatus ?? "action"))
-            .font(.caption.weight(.bold))
-            .foregroundStyle(TurfTheme.statusColor(item.effectiveActionStatus ?? ""))
-          Text(message)
-            .font(.body)
-            .foregroundStyle(TurfTheme.ink)
+      VStack(alignment: .leading, spacing: TurfSpacing.cardGap) {
+        VStack(spacing: 0) {
+          AudioPlayerBar(
+            title: "Audio briefing",
+            subtitle: store.contextStatus?.summary ?? item.contextSummary,
+            url: store.absoluteAudioURL(store.contextStatus?.url),
+            status: store.contextStatus?.status ?? item.contextStatus
+          )
+          .padding(.vertical, TurfSpacing.s)
+          Divider()
+            .padding(.leading, TurfSpacing.hitTarget + TurfSpacing.m)
+          AudioPlayerBar(
+            title: "Read aloud",
+            subtitle: nil,
+            url: store.absoluteAudioURL(store.ttsStatus?.url),
+            status: store.ttsStatus?.status ?? item.ttsStatus
+          )
+          .padding(.vertical, TurfSpacing.s)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .turfPanel()
+        .padding(.horizontal, TurfSpacing.xs)
+        .turfCard(padding: nil)
+
+        if let message = item.effectiveActionMessage {
+          VStack(alignment: .leading, spacing: TurfSpacing.stackTight) {
+            Text(ReviewDisplayText.statusLabel(item.effectiveActionStatus ?? "action"))
+              .font(TurfType.metaStrong)
+              .foregroundStyle(TurfTheme.statusTone(item.effectiveActionStatus ?? "").text)
+            Text(message)
+              .font(TurfType.body)
+              .foregroundStyle(TurfTheme.ink)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .turfCard()
+        }
       }
 
       if needsRetry {
         Button {
           Task { await retry() }
         } label: {
-          HStack {
+          Label {
+            Text("Retry latest action")
+          } icon: {
             if isRetrying {
               ProgressView()
+                .controlSize(.small)
+                .tint(TurfTheme.onAccent)
             } else {
               Image(systemName: "arrow.clockwise.circle.fill")
             }
-            Text("Retry latest action")
           }
-          .frame(maxWidth: .infinity)
+          .contentTransition(.opacity)
+          .turfAnimation(TurfMotion.quick, value: isRetrying)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.turfFilled(.accent, fullWidth: true))
         .disabled(isRetrying)
       }
 
@@ -62,7 +74,7 @@ struct StatusPanel: View {
           description: Text("This review has no pending proof work.")
         )
       } else {
-        VStack(spacing: 10) {
+        VStack(spacing: TurfSpacing.cardGap) {
           ForEach(store.decisionRequests) { request in
             DecisionRequestRow(request: request) { confirmationSlug in
               Task { await store.openConfirmationReview(slug: confirmationSlug) }
@@ -108,14 +120,14 @@ struct DecisionRequestRow: View {
   let openConfirmation: (String) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack {
-        BadgeText(ReviewDisplayText.statusLabel(request.status), color: TurfTheme.statusColor(request.status))
-        BadgeText(ReviewDisplayText.kindLabel(request.kind), color: TurfTheme.plum)
-        Spacer()
+    VStack(alignment: .leading, spacing: TurfSpacing.s) {
+      HStack(spacing: TurfSpacing.controlGap) {
+        BadgeText(ReviewDisplayText.statusLabel(request.status), tone: TurfTheme.statusTone(request.status))
+        BadgeText(ReviewDisplayText.kindLabel(request.kind), tone: .neutral)
+        Spacer(minLength: 0)
       }
       Text(request.summary)
-        .font(.callout)
+        .font(TurfType.body)
         .foregroundStyle(TurfTheme.ink)
         .fixedSize(horizontal: false, vertical: true)
       if let confirmationSlug = trimmedConfirmationSlug {
@@ -123,29 +135,30 @@ struct DecisionRequestRow: View {
           openConfirmation(confirmationSlug)
         } label: {
           Label("Open \(confirmationSlug)", systemImage: "arrow.right.circle.fill")
-            .font(.caption.weight(.semibold))
+            .font(TurfType.control)
             .foregroundStyle(TurfTheme.accent)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(minHeight: TurfSpacing.hitTarget)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open confirmation review \(confirmationSlug)")
       }
       if let proofSummary = request.proofSummary {
         Label(proofSummary, systemImage: "checkmark.seal")
-          .font(.caption)
+          .font(TurfType.caption)
           .foregroundStyle(TurfTheme.muted)
           .fixedSize(horizontal: false, vertical: true)
       }
       if let lastError = request.lastError {
         Text(lastError)
-          .font(.caption)
-          .foregroundStyle(TurfTheme.coral)
+          .font(TurfType.caption)
+          .foregroundStyle(TurfTheme.destructive)
           .fixedSize(horizontal: false, vertical: true)
       }
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .turfPanel()
+    .turfCard()
   }
 
   private var trimmedConfirmationSlug: String? {
@@ -161,9 +174,10 @@ struct FollowupReviewRow: View {
   let openInNative: () -> Void
 
   var body: some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: TurfSpacing.s) {
       Button(action: openInNative) {
         rowContent
+          .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .frame(maxWidth: .infinity)
@@ -172,43 +186,41 @@ struct FollowupReviewRow: View {
       if let url {
         Link(destination: url) {
           Image(systemName: "safari")
-            .font(.caption.weight(.bold))
-            .frame(width: 34, height: 34)
+            .font(TurfType.body)
             .foregroundStyle(TurfTheme.accent)
-            .background(TurfTheme.paper)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-              RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(TurfTheme.hairline, lineWidth: 1)
-            )
+            .frame(width: TurfSpacing.hitTarget, height: TurfSpacing.hitTarget)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The 44pt target overhangs the card's top-trailing padding so the glyph sits on the card's inner edge.
+        .padding(.top, -TurfSpacing.m)
+        .padding(.trailing, -TurfSpacing.m)
         .accessibilityLabel("Open follow-up review in browser")
       }
     }
+    .turfCard()
   }
 
   private var rowContent: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack {
-        BadgeText("Follow-Up Review", color: TurfTheme.accent)
-        Spacer()
+    VStack(alignment: .leading, spacing: TurfSpacing.s) {
+      HStack(spacing: TurfSpacing.controlGap) {
+        BadgeText("Follow-Up Review", tone: .neutral)
+        Spacer(minLength: 0)
         Image(systemName: "arrow.right.circle.fill")
-          .font(.caption.weight(.semibold))
+          .font(TurfType.metaStrong)
           .foregroundStyle(TurfTheme.accent)
+          .accessibilityHidden(true)
       }
       Text(followup.title)
-        .font(.callout)
+        .font(TurfType.body)
         .foregroundStyle(TurfTheme.ink)
         .fixedSize(horizontal: false, vertical: true)
       Label(followup.slug, systemImage: "doc.text.magnifyingglass")
-        .font(.caption)
+        .font(TurfType.caption)
         .foregroundStyle(TurfTheme.muted)
         .fixedSize(horizontal: false, vertical: true)
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .turfPanel()
   }
 }
 
@@ -216,20 +228,20 @@ struct LegacyActionRow: View {
   let action: LegacyAction
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack {
-        BadgeText(ReviewDisplayText.statusLabel(action.status), color: TurfTheme.statusColor(action.status))
-        BadgeText(ReviewDisplayText.actionLabel(action.decision), color: TurfTheme.muted)
-        Spacer()
+    VStack(alignment: .leading, spacing: TurfSpacing.s) {
+      HStack(spacing: TurfSpacing.controlGap) {
+        BadgeText(ReviewDisplayText.statusLabel(action.status), tone: TurfTheme.statusTone(action.status))
+        BadgeText(ReviewDisplayText.actionLabel(action.decision), tone: .neutral)
+        Spacer(minLength: 0)
       }
       if let error = action.lastError {
         Text(error)
-          .font(.caption)
-          .foregroundStyle(TurfTheme.coral)
+          .font(TurfType.caption)
+          .foregroundStyle(TurfTheme.destructive)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .turfPanel()
+    .turfCard()
   }
 }

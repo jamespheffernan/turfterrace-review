@@ -45,6 +45,7 @@ test('review context packet includes stable review session and canonical context
   assert.equal(packet.slug, 'sample-review');
   assert.equal(packet.title, 'Sample Review');
   assert.deepEqual(packet.allowedActions, ['Send', 'Edit', 'Kill']);
+  assert.deepEqual(packet.actions.map((action) => action.id), ['outreach.send', 'outreach.edit', 'outreach.kill']);
   assert.deepEqual(packet.source, {
     workspaceDir: '/tmp/workspace',
     sourcePath: '/tmp/workspace/sample.md',
@@ -54,10 +55,61 @@ test('review context packet includes stable review session and canonical context
   assert.equal(packet.annotations[0].comment, 'Needs proof.');
 });
 
+test('review context packet marks image annotations without carrying raw image data', () => {
+  const packet = buildReviewContextPacket({
+    item: sampleItem(),
+    annotations: [{
+      id: 8,
+      anchor_type: 'image',
+      anchor_ref: 'apple-pencil-sketch',
+      quote: null,
+      comment: 'Apple Pencil sketch: Tighten the intro.',
+      image_data: 'raw-base64-payload',
+      image_mime: 'image/png',
+      created_at: '2026-06-12 10:00:00',
+    }],
+  });
+
+  assert.equal(packet.annotations[0].imageAttached, true);
+  assert.equal(packet.annotations[0].imageMime, 'image/png');
+  assert.equal(packet.annotations[0].imageData, undefined);
+  assert.equal(JSON.stringify(packet).includes('raw-base64-payload'), false);
+});
+
+test('review context packet carries compact review target judgments', () => {
+  const packet = buildReviewContextPacket({
+    item: sampleItem(),
+    annotations: [],
+    reviewTargets: [{
+      key: 'task:approval-list:001:abc',
+      label: 'Approve candidate A',
+      sourceType: 'task_list',
+      anchorRef: 'target:task:approval-list:001:abc',
+      ordinal: 1,
+      verdict: 'rejected',
+      feedback: 'Needs a source link.',
+      decidedAt: '2026-06-12 15:00:00',
+    }],
+  });
+
+  assert.deepEqual(packet.reviewTargets, [{
+    key: 'task:approval-list:001:abc',
+    label: 'Approve candidate A',
+    anchorRef: 'target:task:approval-list:001:abc',
+    sourceType: 'task_list',
+    ordinal: 1,
+    verdict: 'rejected',
+    feedback: 'Needs a source link.',
+    decided: true,
+    decidedAt: '2026-06-12 15:00:00',
+  }]);
+});
+
 test('review chat messages carry context as developer message and user text separately', () => {
   const request = buildReviewChatMessages({
     item: sampleItem(),
     annotations: [],
+    reviewTargets: [{ key: 'task:approval-list:001:abc', label: 'Candidate', verdict: 'approved' }],
     userMessage: 'What is the biggest risk?',
   });
 
@@ -65,6 +117,7 @@ test('review chat messages carry context as developer message and user text sepa
   assert.equal(request.messages.length, 2);
   assert.equal(request.messages[0].role, 'developer');
   assert.match(request.messages[0].content, /"slug": "sample-review"/);
+  assert.match(request.messages[0].content, /"reviewTargets"/);
   assert.match(request.messages[0].content, /Do not expose hidden bootstrap notes/);
   assert.deepEqual(request.messages[1], {
     role: 'user',

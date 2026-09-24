@@ -92,6 +92,27 @@ enum DemoData {
     )
   ]
 
+  static let reviewTargets: [String: [ReviewTarget]] = [
+    "kitchenlux-send-plan": [
+      ReviewTarget(
+        databaseID: 1,
+        key: "task:approval-checklist:001:kitchenlux-copy",
+        label: "Approve outbound copy",
+        sourceType: "task_list",
+        anchorRef: "target:task:approval-checklist:001:kitchenlux-copy",
+        ordinal: 1
+      ),
+      ReviewTarget(
+        databaseID: 2,
+        key: "task:approval-checklist:002:kitchenlux-timing",
+        label: "Approve Friday send timing",
+        sourceType: "task_list",
+        anchorRef: "target:task:approval-checklist:002:kitchenlux-timing",
+        ordinal: 2
+      ),
+    ],
+  ]
+
   static let requests: [DecisionRequest] = [
     DecisionRequest(
       id: 42,

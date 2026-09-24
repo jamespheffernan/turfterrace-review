@@ -1,0 +1,104 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;-webkit-font-smoothing:antialiased;margin:0;padding:0}
+:root{
+  --paper:#F7F2E8;--panel:#FFFCF5;--ink:#211F1B;--muted:#6F6A61;
+  --hairline:#DDD1BF;--accent:#007C89;--coral:#C95F45;
+  --moss:#687F4E;--gold:#C99A38;--plum:#5B4662;
+}
+body{background:#cfc6b6;font-family:-apple-system,"SF Pro Text","Helvetica Neue",system-ui,sans-serif}
+.screen{width:834px;height:1194px;position:relative;overflow:hidden;background:var(--paper);
+  display:flex;flex-direction:column}
+.serif{font-family:"Charter","Iowan Old Style",Georgia,"Times New Roman",serif}
+
+/* status bar */
+.status{height:34px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;font-size:15px;font-weight:600;color:var(--ink);flex:none}
+.status .right{display:flex;gap:7px;align-items:center;font-size:13px}
+
+/* nav */
+.nav{height:52px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;border-bottom:1px solid var(--hairline);background:var(--panel);flex:none}
+.nav .back{color:var(--accent);font-size:17px;font-weight:600;display:flex;align-items:center;gap:4px}
+.nav .title{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.2px}
+.nav .tools{display:flex;gap:14px}
+.toolbtn{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);
+  font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.toolbtn svg{width:22px;height:22px;stroke:var(--ink);stroke-width:1.7;fill:none}
+
+/* document */
+.doc{flex:1;overflow:hidden;position:relative}
+.docpad{padding:38px 64px 120px}
+.eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.4px;
+  color:var(--accent);margin-bottom:10px}
+.h1{font-size:34px;line-height:1.15;color:var(--ink);font-weight:700;margin-bottom:6px}
+.byline{font-size:13px;color:var(--muted);margin-bottom:26px}
+.p{font-size:18px;line-height:1.62;color:#33302a;margin-bottom:18px}
+.hl{background:rgba(201,154,56,.28);border-bottom:2px solid var(--gold);padding:1px 2px;
+  border-radius:2px;position:relative}
+.h2{font-size:21px;font-weight:700;color:var(--ink);margin:24px 0 12px}
+
+/* inline review item */
+.item{border:1px solid var(--hairline);border-left:4px solid var(--accent);background:var(--panel);
+  border-radius:10px;padding:16px 18px;margin:18px 0;display:flex;gap:14px;align-items:center}
+.item .q{flex:1;font-size:16px;line-height:1.45;color:var(--ink)}
+.item .q b{font-weight:700}
+.chip{font-size:14px;font-weight:700;padding:9px 16px;border-radius:999px;border:1.5px solid;
+  display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chip.yes{color:#fff;background:var(--moss);border-color:var(--moss)}
+.chip.no{color:var(--coral);background:#fff;border-color:var(--coral)}
+
+/* pencil cursor */
+.pencil{position:absolute;width:120px;height:120px;pointer-events:none;filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))}
+
+/* generic floating shadow */
+.float{box-shadow:0 18px 50px rgba(33,31,27,.22),0 2px 8px rgba(33,31,27,.12)}
+
+/* caption ribbon */
+.caption{position:absolute;left:0;right:0;bottom:0;background:var(--ink);color:#f3ecdd;
+  padding:14px 28px;font-size:14px;line-height:1.4;display:flex;gap:10px;align-items:baseline}
+.caption b{color:var(--gold);font-weight:700}
+.tag{position:absolute;top:14px;left:14px;background:var(--ink);color:var(--paper);
+  font-size:12px;font-weight:700;letter-spacing:.6px;padding:7px 13px;border-radius:8px;text-transform:uppercase}
+
+/* dimmer */
+.dim{position:absolute;inset:0;background:rgba(33,31,27,.34)}
+</style></head>
+<body><div class="screen" id="optA">
+    <div class="status"><span>9:41</span>
+  <span class="right">Turf&nbsp;Review&nbsp;&nbsp;<span style="letter-spacing:-1px">●●●</span>&nbsp;Wi-Fi&nbsp;&nbsp;100%▮</span></div>
+    <div class="nav">
+    <div class="back">‹&nbsp;Queue</div>
+    <div class="title">Q3 Infra Migration — review</div>
+    <div class="tools"><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg><span>Items</span></div><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16l-1 4z"/><path d="M14.5 6.5l3 3"/></svg><span>Notes</span></div><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4V5z"/></svg><span>Ask</span></div><div class="toolbtn"><svg viewBox="0 0 24 24"><path d="M3 12h3l2-6 3 14 3-11 2 5h5"/></svg><span>Proof</span></div></div>
+  </div>
+    <div class="doc"><div class="docpad serif" style="padding:38px 64px 120px">
+    <div class="eyebrow">Decision packet · pending</div>
+    <div class="h1">Migrate the ingest tier to the new queue</div>
+    <div class="byline">Drafted by the platform pod · 1,840 words · 6 review items</div>
+    <p class="p">The current ingest path routes every event through a single synchronous
+      worker pool. Under the Q2 peak it sat at <span class="hl">94% saturation for nine
+      hours</span> and dropped 0.3% of events on the floor — small, but the wrong events.</p>
+    <p class="p">This plan moves ingest behind a durable queue so spikes buffer instead of
+      drop, and so we can replay a bad window without a redeploy.</p>
+    <div class="item">
+      <div class="q"><b>Item 2.</b> Cut over writes in a single switch rather than a dual-write window?</div>
+      <div class="chip yes">✓ Yes</div>
+      <div class="chip no">✗ No</div>
+    </div>
+    <p class="p">The team prefers a hard cutover at low traffic with a tested rollback,
+      arguing dual-write doubles the surface for subtle drift.</p>
+    <div class="h2 serif">Rollback &amp; blast radius</div>
+    <p class="p">A failed cutover reverts in under four minutes by flipping the router flag.
+      The queue retains 24h, so no window is unrecoverable.</p>
+  </div></div>
+    <div class="float" style="position:absolute;left:50%;bottom:104px;transform:translateX(-50%);
+      display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--hairline);
+      border-radius:999px;padding:10px 12px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding-left:8px">Recommend</div>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--accent);color:#fff;font-size:18px;font-weight:700;padding:13px 26px;border-radius:999px">Send ▸</div>
+      <div style="font-size:17px;font-weight:600;color:var(--ink);padding:13px 20px;border:1.5px solid var(--hairline);border-radius:999px">Edit</div>
+      <div style="font-size:22px;font-weight:700;color:var(--muted);padding:8px 16px">⋯</div>
+    </div>
+    <div class="caption"><b>A · Decision Dock.</b> Reader is full width. One floating pill always shows the recommended verdict + a second option; ⋯ opens the full action set. Items &amp; notes act inline on the page.</div>
+    <div class="tag">Option A</div>
+  </div></body></html>

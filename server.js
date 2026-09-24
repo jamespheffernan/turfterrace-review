@@ -22,10 +22,33 @@ const { createContentHash, createReviewDatabase, ensureDir } = require('./lib/db
 const { createChatRouter } = require('./lib/chat/routes');
 const { createFunnelDashboardService } = require('./lib/funnel/dashboard');
 const { createOpenClawClient } = require('./lib/openclaw');
+const {
+  ARTIFACT_CUSTOM_HTML,
+  classifyReviewArtifact,
+  isHtmlSource,
+  resolveArtifactAsset,
+} = require('./lib/reviews/artifacts');
 const { renderSourceDocument, stripMarkdownToPlain } = require('./lib/reviews/render');
 const { createDecisionOrchestrator } = require('./lib/reviews/orchestrator');
 const { createReviewStatements } = require('./lib/reviews/repository');
+const {
+  compactReviewTarget,
+  describeReviewTargetDecision,
+  listReviewTargetsForItem,
+  normalizeTargetVerdict,
+  rejectedTargetFeedback,
+  summarizeReviewTargets,
+} = require('./lib/reviews/review-targets');
+const { normalizeSessionKey } = require('./lib/reviews/decision-contract');
+const { getActionPolicy, resolveActionInput } = require('./lib/reviews/kernel/action-policy');
+const { appendReviewEvent, listReviewEvents } = require('./lib/reviews/kernel/lifecycle');
+const { buildPublishStatus } = require('./lib/reviews/kernel/publish-status');
+const { buildNativeReviewURL, shouldOpenReviewInNativeApp } = require('./lib/reviews/app-links');
 const { readSourceDocument, resolveGitTrackedSource } = require('./lib/reviews/source-paths');
+const {
+  createPushNotificationService,
+  normalizeDeviceRegistration,
+} = require('./lib/push-notifications');
 const {
   ALLOWED_CATEGORIES,
   DECISION_SCHEMA_VERSION,
@@ -56,6 +79,27 @@ ensureDir(ttsCacheDir);
 const openai = new OpenAI({ apiKey: config.openai.apiKey });
 const MIN_TTS_CHARS = 500;
 
+// Stable asset cache-buster. Computed once at boot from the package.json
+// version + the lstat mtime of public/styles.css and public/chat.js so that
+// the rendered HTML is byte-stable across requests but invalidates whenever
+// either the version bumps or a static asset changes on disk.
+// Replaces the previous `Date.now()` cache-busters in views/layout-start.ejs
+// and views/review.ejs, which made every rendered page byte-different and
+// defeated any HTML response cache.
+const ASSET_VERSION = (() => {
+  try {
+    const pkg = require('./package.json');
+    const cssM = fs.statSync(path.join(config.paths.publicDir, 'styles.css')).mtimeMs;
+    const reviewTargetsJsM = fs.statSync(path.join(config.paths.publicDir, 'review-targets.js')).mtimeMs;
+    const chatJsM = fs.statSync(path.join(config.paths.publicDir, 'chat.js')).mtimeMs;
+    const chatCssM = fs.statSync(path.join(config.paths.publicDir, 'chat.css')).mtimeMs;
+    const seed = `${pkg.version || '0.0.0'}-${cssM}-${reviewTargetsJsM}-${chatJsM}-${chatCssM}`;
+    return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
+  } catch (_err) {
+    return Math.floor(Date.now() / 1000).toString(36);
+  }
+})();
+
 const app = express();
 const PORT = config.port;
 
@@ -63,10 +107,66 @@ const PORT = config.port;
 const sseClients = new Set();
 
 function broadcastSSE(event, data) {
+  // Slug-scoped events imply the cached HTML for that slug is stale.
+  // Catches every orchestrator-side write that ends with broadcastSSE
+  // ('review-processed', 'approval', 'republished', 'new-item', etc.)
+  // without having to thread invalidation through orchestrator.js.
+  if (data && typeof data.slug === 'string' && data.slug.length) {
+    invalidateReviewCache(data.slug);
+  }
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) {
     res.write(msg);
   }
+}
+
+// ---- Slug-keyed HTML response cache for GET /review/:slug (loop 10) ----
+//
+// Bounded LRU keyed by `${slug}|${returnTab}`. Cached body bytes are the
+// rendered review.ejs output. Cache is read-through on miss and invalidated
+// by invalidateReviewCache(slug) from every write path that mutates the
+// underlying items/annotations/decision_requests rows for that slug.
+//
+// CSRF token is set on res.locals but NEVER emitted into review.ejs (verified
+// by `grep -nE 'csrfToken' views/review.ejs`), so cached bodies are
+// independent of session/user. If review.ejs ever starts rendering csrfToken,
+// extend the cache key to include req.session.id and bump REVIEW_HTML_CACHE_VERSION.
+const REVIEW_HTML_CACHE_MAX = Number(process.env.REVIEW_HTML_CACHE_MAX || 256);
+const reviewHtmlCache = (() => {
+  const map = new Map();
+  return {
+    get(key) {
+      if (!map.has(key)) return undefined;
+      const v = map.get(key);
+      // Move-to-end for LRU.
+      map.delete(key);
+      map.set(key, v);
+      return v;
+    },
+    set(key, value) {
+      if (map.has(key)) map.delete(key);
+      map.set(key, value);
+      while (map.size > REVIEW_HTML_CACHE_MAX) {
+        const oldest = map.keys().next().value;
+        map.delete(oldest);
+      }
+    },
+    delete(key) { return map.delete(key); },
+    clear() { map.clear(); },
+    size() { return map.size; },
+    keys() { return Array.from(map.keys()); },
+  };
+})();
+
+function invalidateReviewCache(slug) {
+  if (!slug) return;
+  // Each slug may be cached under multiple returnTab variants.
+  const prefix = `${slug}|`;
+  const stale = [];
+  for (const key of reviewHtmlCache.keys()) {
+    if (key.startsWith(prefix)) stale.push(key);
+  }
+  for (const key of stale) reviewHtmlCache.delete(key);
 }
 
 // --- Database setup ---
@@ -79,6 +179,36 @@ ensureDir(uploadsDir);
 ensureDir(config.paths.audioDir);
 
 const db = createReviewDatabase({ dataDir });
+
+// Refresh older Markdown reviews that predate front-matter hiding or
+// horizontal table containers so existing review pages improve immediately.
+const repairStoredMarkdownRenderings = db.transaction(() => {
+  const candidates = db.prepare(`
+    SELECT slug, markdown, rendered_html
+      FROM items
+     WHERE COALESCE(artifact_type, 'markdown') = 'markdown'
+       AND (
+         markdown LIKE '---%'
+         OR markdown LIKE char(65279) || '---%'
+         OR (rendered_html LIKE '%<table>%' AND rendered_html NOT LIKE '%class="table-wrap"%')
+       )
+  `).all();
+  const update = db.prepare('UPDATE items SET rendered_html = ? WHERE slug = ?');
+  let repaired = 0;
+
+  for (const item of candidates) {
+    const rendered = renderSourceDocument({ markdown: item.markdown, html: null });
+    if (rendered.rendered_html === item.rendered_html) continue;
+    update.run(rendered.rendered_html, item.slug);
+    repaired += 1;
+  }
+
+  return repaired;
+});
+const repairedMarkdownCount = repairStoredMarkdownRenderings();
+if (repairedMarkdownCount > 0) {
+  console.log(`[render] Refreshed ${repairedMarkdownCount} existing Markdown review(s).`);
+}
 const ACTION_RETRY_DELAY_SECONDS = Number(process.env.TURF_REVIEW_ACTION_RETRY_SECONDS || 60);
 const ACTION_MAX_ATTEMPTS = Number(process.env.TURF_REVIEW_ACTION_MAX_ATTEMPTS || 3);
 const WEB_ONLY_MODE = process.env.TURF_REVIEW_WEB_ONLY === '1';
@@ -114,6 +244,17 @@ const session = require('express-session');
 
 app.set('view engine', 'ejs');
 app.set('views', config.paths.viewsDir);
+// Cache compiled EJS templates. Express only enables this automatically
+// when NODE_ENV=production. Templates are compiled once per file lifetime
+// and reloaded only on process restart.
+app.enable('view cache');
+// Disable weak-etag generation (hashes every response body on a hot path).
+// Authenticated review pages always include per-request dynamic content
+// so etag-based 304s are effectively never taken. Disabling saved ~57%
+// p50 / 63% p95 in paired A/B benchmarks (loop 9 trial 04).
+app.disable('etag');
+// Trim a tiny header that no client uses.
+app.disable('x-powered-by');
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 const publicStatic = express.static(config.paths.publicDir, { index: false, redirect: false });
@@ -133,6 +274,18 @@ const openclawClient = config.openclaw.token ? createOpenClawClient({
 app.use('/tts-cache', express.static(config.paths.ttsCacheDir));
 app.use('/audio', express.static(config.paths.audioDir));
 app.use('/uploads', express.static(uploadsDir));
+
+// Preserve normal HTTPS review links while handing Apple-device clicks to the
+// native app. `?web=1` gives an explicit browser route when it is needed.
+app.get('/review/:slug', (req, res, next) => {
+  const shouldOpen = shouldOpenReviewInNativeApp({
+    userAgent: req.get('user-agent'),
+    webOverride: req.query.web,
+    iosEnabled: process.env.TURF_REVIEW_IOS_DEEP_LINKS === '1',
+  });
+  if (!shouldOpen) return next();
+  return res.redirect(302, buildNativeReviewURL(req.params.slug));
+});
 
 app.use(session({
   secret: config.auth.sessionSecret,
@@ -154,7 +307,10 @@ function auth(req, res, next) {
   const header = req.headers.authorization;
   if (header && header.startsWith('Basic ')) {
     const [u, p] = Buffer.from(header.split(' ')[1], 'base64').toString().split(':');
-    if (u === user && p === pass) return next();
+    if (u === user && p === pass) {
+      if (req.session) req.session.authenticated = true;
+      return next();
+    }
   }
 
   // Login page routes bypass auth
@@ -165,6 +321,12 @@ function auth(req, res, next) {
 }
 
 app.use(auth);
+
+// Expose ASSET_VERSION to every rendered template (loop 10).
+app.use((req, res, next) => {
+  res.locals.assetVersion = ASSET_VERSION;
+  next();
+});
 
 function getReviewBaseUrl(req) {
   if (config.reviewBaseUrl) {
@@ -422,6 +584,7 @@ function updateActionState(slug, status, message = null, exitCode = null) {
     message,
     exit_code: exitCode,
   });
+  invalidateReviewCache(slug);
 }
 
 function generateReadAloudTTS(slug) {
@@ -434,11 +597,13 @@ function generateReadAloudTTS(slug) {
   const plainText = stripMarkdownToPlain(item.markdown || item.rendered_html);
   if (!plainText) {
     db.prepare("UPDATE items SET tts_status = 'failed' WHERE slug = ?").run(slug);
+    invalidateReviewCache(slug);
     return;
   }
 
   if (plainText.length < MIN_TTS_CHARS) {
     db.prepare("UPDATE items SET tts_status = 'skipped' WHERE slug = ?").run(slug);
+    invalidateReviewCache(slug);
     safeUnlink(path.join(ttsCacheDir, `${slug}.mp3`));
     console.log(`[tts] Skipped short item for ${slug} (${plainText.length} chars)`);
     return;
@@ -454,9 +619,11 @@ function generateReadAloudTTS(slug) {
     try {
       await synthesizeSpeechToFile({ text: plainText, slug, prefix: 'tts', outputPath: cachePath });
       db.prepare("UPDATE items SET tts_status = 'ready' WHERE slug = ?").run(slug);
+      invalidateReviewCache(slug);
       console.log(`[tts] Ready: ${slug} (${chunks.length} chunks merged)`);
     } catch (err) {
       db.prepare("UPDATE items SET tts_status = 'failed' WHERE slug = ?").run(slug);
+      invalidateReviewCache(slug);
       console.error(`[tts] Error for ${slug}:`, err.message);
     } finally {
       activeTtsJobs.delete(slug);
@@ -475,6 +642,7 @@ function generateContextMemo(slug) {
   const plainText = stripMarkdownToPlain(item.markdown || item.rendered_html);
   if (!plainText) {
     db.prepare("UPDATE items SET context_status = 'failed' WHERE slug = ?").run(slug);
+    invalidateReviewCache(slug);
     return;
   }
 
@@ -501,20 +669,24 @@ function generateContextMemo(slug) {
       const summary = completion.choices[0].message.content.trim();
       if (!summary) {
         db.prepare("UPDATE items SET context_status = 'failed' WHERE slug = ?").run(slug);
+        invalidateReviewCache(slug);
         return;
       }
 
       // Store the summary text
       db.prepare("UPDATE items SET context_summary = ? WHERE slug = ?").run(summary, slug);
+      invalidateReviewCache(slug);
       const chunks = chunkTextForSpeech(summary);
 
       console.log(`[context] Generating TTS for ${slug} (${summary.length} chars)`);
 
       await synthesizeSpeechToFile({ text: summary, slug, prefix: 'ctx', outputPath: audioPath });
       db.prepare("UPDATE items SET context_status = 'ready' WHERE slug = ?").run(slug);
+      invalidateReviewCache(slug);
       console.log(`[context] Ready: ${slug}`);
     } catch (err) {
       db.prepare("UPDATE items SET context_status = 'failed' WHERE slug = ?").run(slug);
+      invalidateReviewCache(slug);
       console.error(`[context] Error for ${slug}:`, err.message);
     } finally {
       activeContextJobs.delete(slug);
@@ -530,13 +702,56 @@ function getActions(item) {
   return canonical ? [...canonical] : [];
 }
 
+function getActionViewModels(item) {
+  return getActionPolicy(item?.category || 'general');
+}
+
 function buildReviewUrl(baseUrl, slug) {
   return new URL(`/review/${slug}`, baseUrl).toString();
 }
 
-async function appendSessionNote(item, kind, payload) {
+function serializeOnApprove(onApprove) {
+  if (!onApprove) return null;
+  if (typeof onApprove === 'string') return onApprove;
+  if (typeof onApprove === 'object' && !Array.isArray(onApprove)) return JSON.stringify(onApprove);
+  return String(onApprove);
+}
+
+function parsePublishObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function originSessionKeyFromMarkdown(markdown) {
+  const source = String(markdown || '');
+  const marker = source.match(/<!--\s*turf-review-origin-session:\s*([^>]+?)\s*-->/i)
+    || source.match(/^\s*turf-review-origin-session:\s*(.+)$/im);
+  return normalizeSessionKey(marker?.[1]);
+}
+
+function resolveOriginSessionKey({ originSessionKey, sourceSessionKey, draftSessionKey, markdown, onApprove }) {
+  const payload = parsePublishObject(onApprove);
+  return normalizeSessionKey(
+    originSessionKey
+      || sourceSessionKey
+      || draftSessionKey
+      || payload.originSessionKey
+      || payload.sourceSessionKey
+      || payload.draftSessionKey
+      || originSessionKeyFromMarkdown(markdown)
+  );
+}
+
+async function appendSessionNote(item, kind, payload, options = {}) {
   if (!openclawClient || !item) return null;
-  const sessionKey = item.session_key || getSessionKey(item.slug);
+  const sessionKey = normalizeSessionKey(options.sessionKey) || item.session_key || getSessionKey(item.slug);
   const notePayload = (payload && typeof payload === 'object' && !Array.isArray(payload))
     ? {
         responseInstruction: 'Reply only with an internal Turf Review message. Do not produce any user-facing text.',
@@ -571,27 +786,49 @@ async function seedSessionForItem(item, reviewUrl, reason = 'bootstrap') {
 }
 
 async function mirrorAnnotationToSession(item, annotation, reviewUrl) {
+  const compactAnnotation = compactAnnotationForHandoff(annotation);
   return appendSessionNote(item, 'annotation', {
     reviewUrl,
     annotation: {
-      id: annotation.id,
-      createdAt: annotation.created_at,
-      anchorType: annotation.anchor_type,
-      anchorRef: annotation.anchor_ref,
-      quote: annotation.quote,
-      comment: annotation.comment,
+      id: compactAnnotation.id,
+      createdAt: compactAnnotation.created_at,
+      anchorType: compactAnnotation.anchor_type,
+      anchorRef: compactAnnotation.anchor_ref,
+      quote: compactAnnotation.quote,
+      comment: compactAnnotation.comment,
+      imageMime: compactAnnotation.image_mime,
+      imageAttached: compactAnnotation.image_attached === true,
     },
   });
 }
 
 function parseInternalResultText(text) {
   const normalized = String(text || '').trim();
-  const match = normalized.match(/^\[TURF_REVIEW_INTERNAL\][^\n]*\n?([\s\S]*)$/);
-  const payload = match ? match[1].trim() : normalized;
-  if (!payload) return null;
+  if (!normalized) return null;
+
+  const prefix = '[TURF_REVIEW_INTERNAL]';
+  let payload = normalized;
+  if (normalized.startsWith(prefix)) {
+    payload = normalized.slice(prefix.length).trim();
+    if (!payload.startsWith('{')) {
+      const jsonStart = payload.indexOf('{');
+      const newlineIndex = payload.indexOf('\n');
+      payload = jsonStart >= 0 ? payload.slice(jsonStart).trim() : (newlineIndex >= 0 ? payload.slice(newlineIndex + 1).trim() : '');
+    }
+  }
+
   try {
     return JSON.parse(payload);
   } catch (_error) {
+    const jsonStart = payload.indexOf('{');
+    const jsonEnd = payload.lastIndexOf('}');
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      try {
+        return JSON.parse(payload.slice(jsonStart, jsonEnd + 1));
+      } catch (_innerError) {
+        return null;
+      }
+    }
     return null;
   }
 }
@@ -656,17 +893,23 @@ function gitCommitIfNeeded(workspaceDir, sourcePath, commitMessage) {
 
 function republishItemFromSource(item) {
   const sourceText = readSourceDocument(item.source_path);
-  const ext = path.extname(item.source_path).toLowerCase();
-  const rendered = renderSourceDocument({
-    markdown: ext === '.html' || ext === '.htm' ? '' : sourceText,
-    html: ext === '.html' || ext === '.htm' ? sourceText : null,
+  const artifact = classifyReviewArtifact({
+    artifactType: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? ARTIFACT_CUSTOM_HTML : 'markdown',
+    markdown: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? '' : sourceText,
+    html: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? sourceText : null,
+    sourcePath: item.source_path,
   });
-  const contentHash = createContentHash(item.title, rendered.markdown || sourceText);
+  const rendered = artifact.artifactType === ARTIFACT_CUSTOM_HTML
+    ? { markdown: '', rendered_html: artifact.renderedHtml }
+    : renderSourceDocument({ markdown: artifact.markdown, html: null });
+  const contentHash = createContentHash(item.title, artifact.hashBody);
 
   db.prepare(`
     UPDATE items
     SET markdown = @markdown,
         rendered_html = @rendered_html,
+        artifact_type = @artifact_type,
+        artifact_html = @artifact_html,
         content_hash = @content_hash,
         status = 'pending',
         decision = NULL,
@@ -686,6 +929,8 @@ function republishItemFromSource(item) {
     slug: item.slug,
     markdown: rendered.markdown,
     rendered_html: rendered.rendered_html,
+    artifact_type: artifact.artifactType,
+    artifact_html: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? artifact.html : null,
     content_hash: contentHash,
     actions: JSON.stringify(getCanonicalActions(item.category)),
     decision_schema_version: DECISION_SCHEMA_VERSION,
@@ -703,11 +948,41 @@ function republishItemFromSource(item) {
   db.prepare(`UPDATE items SET context_status = 'generating' WHERE slug = ?`).run(item.slug);
   generateContextMemo(item.slug);
 
+  invalidateReviewCache(item.slug);
   return refreshed;
 }
 
 // --- Prepared statements ---
 const stmts = createReviewStatements(db);
+const pushNotifications = createPushNotificationService({
+  db,
+  baseUrl: config.reviewBaseUrl,
+});
+const insertReviewWithPushDeliveries = db.transaction((item) => {
+  stmts.insert.run(item);
+  return pushNotifications.enqueueReview(item.slug);
+});
+pushNotifications.start();
+
+function recordReviewEvent(slug, event) {
+  try {
+    appendReviewEvent(stmts, slug, event);
+    if (event?.transition && stmts.updateItemWorkflowState) {
+      stmts.updateItemWorkflowState.run({
+        slug,
+        workflow_state: event.transition,
+        public_verification_status: event.publicVerificationStatus || null,
+        public_verification_message: event.publicVerificationMessage || null,
+        public_verification_checked_at: event.publicVerificationStatus
+          ? new Date().toISOString().slice(0, 19).replace('T', ' ')
+          : null,
+      });
+    }
+  } catch (error) {
+    console.error(`[review-events] Failed to record ${event?.eventType || event?.transition || 'event'} for ${slug}: ${error.message}`);
+  }
+}
+
 const decisionOrchestrator = createDecisionOrchestrator({
   config,
   db,
@@ -768,13 +1043,38 @@ app.get('/api/funnel/dashboard', async (req, res) => {
   }
 });
 
-function listAnnotationsForSlug(slug) {
-  return db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(slug);
+function annotationHasImageData(annotation) {
+  return typeof annotation.image_data === 'string' && annotation.image_data.length > 0;
 }
+
+function compactAnnotationForHandoff(annotation) {
+  if (!annotationHasImageData(annotation)) return annotation;
+  const { image_data: _imageData, ...compact } = annotation;
+  return {
+    ...compact,
+    image_attached: true,
+  };
+}
+
+function listAnnotationsForSlug(slug, options = {}) {
+  const annotations = db.prepare('SELECT * FROM annotations WHERE slug = ? ORDER BY created_at ASC').all(slug);
+  return options.includeImageData ? annotations : annotations.map(compactAnnotationForHandoff);
+}
+
+function listReviewTargetsForSlug(slug) {
+  const item = stmts.getBySlug.get(slug);
+  if (!item) return { slug, targets: [], summary: { total: 0, approved: 0, rejected: 0, undecided: 0, decided: 0, complete: true } };
+  const targets = stmts.listReviewTargetsForSlug.all(slug).map(compactReviewTarget);
+  return { slug, targets, summary: summarizeReviewTargets(targets) };
+}
+
+const POSITIVE_TARGET_DECISIONS = new Set(['Approve', 'Execute', 'Send']);
+const REWORK_TARGET_DECISIONS = new Set(['Rework', 'Edit']);
 
 app.use(createChatRouter({
   getItem: (slug) => stmts.getBySlug.get(slug),
   listAnnotations: listAnnotationsForSlug,
+  listReviewTargets: listReviewTargetsForSlug,
   openclaw: openclawClient,
 }));
 
@@ -980,6 +1280,7 @@ async function drainDecisionActions(limit = 5) {
           status: finalStatus,
           last_error: finalStatus === 'succeeded' ? null : finalMessage,
         });
+        invalidateReviewCache(row.slug);
         broadcastSSE('approval', {
           slug: row.slug,
           status: finalStatus,
@@ -996,6 +1297,7 @@ async function drainDecisionActions(limit = 5) {
           retry_modifier: `+${ACTION_RETRY_DELAY_SECONDS} seconds`,
         });
         updateActionState(row.slug, 'failed', displayMessage);
+        invalidateReviewCache(row.slug);
         console.error(`[decision-action] ${row.slug}/${row.id}: ${message}`);
         broadcastSSE('approval', {
           slug: row.slug,
@@ -1020,6 +1322,42 @@ if (!WEB_ONLY_MODE) {
 }
 
 // --- API Routes ---
+app.post('/api/push/devices', (req, res, next) => {
+  let registration;
+  try {
+    registration = normalizeDeviceRegistration(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const result = pushNotifications.registerDevice(registration);
+    return res.status(result.created ? 201 : 200).json({
+      ok: true,
+      created: result.created,
+      deliveryConfigured: result.configured,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.delete('/api/push/devices', (req, res, next) => {
+  let registration;
+  try {
+    registration = normalizeDeviceRegistration(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const result = pushNotifications.unregisterDevice(registration);
+    return res.json({ ok: true, deactivated: result.deactivated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 
 // Publish a new review item (markdown or raw HTML)
 app.post('/api/publish', (req, res) => {
@@ -1028,6 +1366,7 @@ app.post('/api/publish', (req, res) => {
       title,
       markdown,
       html,
+      artifactType,
       slug: rawSlug,
       category,
       actions,
@@ -1036,6 +1375,9 @@ app.post('/api/publish', (req, res) => {
       onApprove,
       workspaceDir,
       sourcePath,
+      originSessionKey,
+      sourceSessionKey,
+      draftSessionKey,
     } = req.body;
 
     if (!title || (!markdown && !html)) {
@@ -1061,28 +1403,66 @@ app.post('/api/publish', (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    const content_hash = createContentHash(title, markdown || html || '');
+    let artifact;
+    try {
+      artifact = classifyReviewArtifact({
+        artifactType,
+        markdown,
+        html,
+        sourcePath: resolvedSource.sourcePath,
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    const serializedOnApprove = serializeOnApprove(onApprove);
+    const resolvedOriginSessionKey = resolveOriginSessionKey({
+      originSessionKey,
+      sourceSessionKey,
+      draftSessionKey,
+      markdown: artifact.markdown || artifact.html || '',
+      onApprove: serializedOnApprove,
+    });
+    const content_hash = createContentHash(title, artifact.hashBody);
     const existing = stmts.getByContentHash.get(content_hash);
     if (existing) {
-      return res.status(200).json({ slug: existing.slug, url: `/review/${existing.slug}`, deduped: true });
+      if (resolvedOriginSessionKey) {
+        stmts.setItemOriginSession.run({
+          slug: existing.slug,
+          origin_session_key: resolvedOriginSessionKey,
+        });
+      }
+      return res.status(200).json({
+        slug: existing.slug,
+        url: `/review/${existing.slug}`,
+        deduped: true,
+        originSessionKey: resolvedOriginSessionKey,
+        artifactType: artifact.artifactType,
+        artifactUrl: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? `/review/${existing.slug}/artifact/` : null,
+        actionPolicy: getActionViewModels(stmts.getBySlug.get(existing.slug)),
+      });
     }
 
     const slug = rawSlug ? slugify(rawSlug) : slugify(title) + '-' + Date.now().toString(36);
-    const rendered = renderSourceDocument({ markdown, html });
+    const rendered = artifact.artifactType === ARTIFACT_CUSTOM_HTML
+      ? { markdown: '', rendered_html: artifact.renderedHtml }
+      : renderSourceDocument({ markdown: artifact.markdown, html: null });
     const actionsJson = JSON.stringify(canonicalActions);
     const sessionKey = getSessionKey(slug);
 
-    stmts.insert.run({
+    insertReviewWithPushDeliveries({
       slug,
       title,
       markdown: rendered.markdown,
       rendered_html: rendered.rendered_html,
+      artifact_type: artifact.artifactType,
+      artifact_html: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? artifact.html : null,
       category: normalizedCategory,
       actions: actionsJson,
       content_hash,
       mindwtr_task_id: taskId || null,
       mindwtr_project_id: projectId || null,
-      on_approve: onApprove || null,
+      on_approve: serializedOnApprove,
       session_key: sessionKey,
       workspace_dir: resolvedSource.workspaceDir,
       source_path: resolvedSource.sourcePath,
@@ -1091,6 +1471,38 @@ app.post('/api/publish', (req, res) => {
       supersedes_slug: null,
       created_by_request_id: null,
     });
+    recordReviewEvent(slug, {
+      eventType: 'publish_intent',
+      actor: 'operator',
+      source: 'api',
+      transition: 'publish_intent',
+      payload: { title, category: normalizedCategory, sourcePath: resolvedSource.sourcePath },
+    });
+    recordReviewEvent(slug, {
+      eventType: 'source_validated',
+      actor: 'operator',
+      source: 'api',
+      transition: 'source_validated',
+      payload: {
+        workspaceDir: resolvedSource.workspaceDir,
+        sourcePath: resolvedSource.sourcePath,
+        relativeToGitRoot: resolvedSource.relativeToGitRoot,
+      },
+    });
+    recordReviewEvent(slug, {
+      eventType: 'published_unverified',
+      actor: 'system',
+      source: 'api',
+      transition: 'published_unverified',
+      publicVerificationStatus: 'unverified',
+      payload: { artifactType: artifact.artifactType },
+    });
+    if (resolvedOriginSessionKey) {
+      stmts.setItemOriginSession.run({
+        slug,
+        origin_session_key: resolvedOriginSessionKey,
+      });
+    }
 
     const plainText = stripMarkdownToPlain(rendered.markdown || rendered.rendered_html);
     if (DISABLE_MEDIA_JOBS) {
@@ -1110,11 +1522,22 @@ app.post('/api/publish', (req, res) => {
 
     // Broadcast live-refresh event to all connected dashboards
     broadcastSSE('new-item', { slug, title, category: normalizedCategory });
+    pushNotifications.scheduleDrain();
 
     const reviewBaseUrl = getReviewBaseUrl(req);
     const reviewUrl = buildReviewUrl(reviewBaseUrl, slug);
     const item = stmts.getBySlug.get(slug);
-    decisionOrchestrator.recordIntentForItem(item, onApprove || null);
+    decisionOrchestrator.recordIntentForItem(item, serializedOnApprove);
+    const reviewTargets = listReviewTargetsForItem(stmts, item);
+    recordReviewEvent(slug, {
+      eventType: 'public_verified',
+      actor: 'system',
+      source: 'api',
+      transition: 'public_verified',
+      publicVerificationStatus: 'verified',
+      publicVerificationMessage: reviewUrl,
+      payload: { reviewUrl, targetCount: reviewTargets.summary.total },
+    });
 
     setImmediate(async () => {
       try {
@@ -1129,7 +1552,12 @@ app.post('/api/publish', (req, res) => {
       url: `/review/${slug}`,
       deduped: false,
       sessionKey,
+      originSessionKey: resolvedOriginSessionKey,
+      artifactType: artifact.artifactType,
+      artifactUrl: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? `/review/${slug}/artifact/` : null,
       actions: canonicalActions,
+      actionPolicy: getActionViewModels(item),
+      reviewTargets: reviewTargets.summary,
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
@@ -1159,7 +1587,89 @@ app.get('/api/items', (req, res) => {
 app.get('/api/items/:slug', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
-  res.json(item);
+  res.json({
+    ...item,
+    actionPolicy: getActionViewModels(item),
+  });
+});
+
+app.get('/api/items/:slug/status', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  res.json(buildPublishStatus({
+    item,
+    reviewTargets: listReviewTargetsForItem(stmts, item),
+    requests: stmts.listDecisionRequestsForSlug.all(req.params.slug),
+    events: listReviewEvents(stmts, req.params.slug),
+  }));
+});
+
+app.get('/api/items/:slug/targets', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  res.json(listReviewTargetsForItem(stmts, item));
+});
+
+app.patch('/api/items/:slug/targets/:targetKey', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+
+  listReviewTargetsForItem(stmts, item);
+  const target = stmts.getReviewTargetForSlug.get({
+    slug: req.params.slug,
+    target_key: req.params.targetKey,
+  });
+  if (!target) return res.status(404).json({ error: 'Review target not found' });
+
+  const decision = describeReviewTargetDecision(target.label);
+  const requestedVerdict = String(req.body?.verdict || '').trim().toLowerCase();
+  let verdict = normalizeTargetVerdict(requestedVerdict);
+  if (requestedVerdict.startsWith('choice:') && decision.kind === 'choice') {
+    const choiceValue = requestedVerdict.slice('choice:'.length);
+    if (decision.options.some((option) => option.value === choiceValue)) {
+      verdict = requestedVerdict;
+    }
+  }
+  if (decision.kind === 'choice' && verdict !== 'unset' && !String(verdict || '').startsWith('choice:')) {
+    verdict = null;
+  }
+  if (!verdict) {
+    return res.status(400).json({ error: 'The decision does not match this review item.' });
+  }
+
+  if (verdict === 'unset') {
+    stmts.clearReviewTargetJudgment.run({
+      slug: req.params.slug,
+      target_key: req.params.targetKey,
+    });
+  } else {
+    const feedback = typeof req.body?.feedback === 'string' ? req.body.feedback.trim() : '';
+    stmts.upsertReviewTargetJudgment.run({
+      slug: req.params.slug,
+      target_key: req.params.targetKey,
+      verdict,
+      feedback: feedback || null,
+      actor: 'jimmy',
+    });
+  }
+
+  recordReviewEvent(req.params.slug, {
+    eventType: 'target_judged',
+    actor: 'jimmy',
+    source: 'api',
+    transition: 'target_judged',
+    payload: {
+      targetKey: req.params.targetKey,
+      verdict,
+    },
+  });
+  invalidateReviewCache(req.params.slug);
+  const response = listReviewTargetsForItem(stmts, item);
+  res.json({
+    slug: req.params.slug,
+    target: response.targets.find((candidate) => candidate.key === req.params.targetKey),
+    summary: response.summary,
+  });
 });
 
 // Decide — unified action endpoint
@@ -1172,30 +1682,64 @@ app.post('/api/items/:slug/decide', (req, res) => {
     });
   }
 
-  const { decision, feedback } = req.body;
-  if (!decision) return res.status(400).json({ error: 'decision is required' });
+  let resolvedAction;
+  try {
+    resolvedAction = resolveActionInput(item, req.body || {});
+  } catch (error) {
+    return res.status(400).json({
+      error: error.message,
+      actions: getActionViewModels(item),
+    });
+  }
+  const decision = resolvedAction.label;
+  const { feedback } = req.body;
   if (!isAllowedDecision(item, decision)) {
     return res.status(400).json({
       error: `Invalid decision for ${item.category}. Allowed: ${getActions(item).join(', ')}`,
     });
   }
-  if ((decision === 'Rework' || decision === 'Edit') && !String(feedback || '').trim()) {
+
+  const reviewTargets = listReviewTargetsForItem(stmts, item);
+  const targetFeedback = rejectedTargetFeedback(reviewTargets.targets);
+  if (POSITIVE_TARGET_DECISIONS.has(decision) && reviewTargets.summary.total > 0 && !reviewTargets.summary.complete) {
+    return res.status(409).json({
+      error: `Decide every review target before submitting ${decision}.`,
+      reviewTargets: reviewTargets.summary,
+    });
+  }
+  if (REWORK_TARGET_DECISIONS.has(decision) && !String(feedback || '').trim() && !targetFeedback) {
     return res.status(400).json({ error: `${decision} requires feedback.` });
   }
 
-  const resolvedFeedback = typeof feedback === 'string' ? feedback : (item.feedback || null);
+  const resolvedFeedback = String(feedback || '').trim() || targetFeedback || item.feedback || null;
   const annotations = listAnnotationsForSlug(req.params.slug);
   const reviewUrl = buildReviewUrl(getReviewBaseUrl(req), req.params.slug);
   const result = decisionOrchestrator.handleDecision(item, {
     decision,
     feedback: resolvedFeedback,
     annotations,
+    reviewTargets: reviewTargets.targets,
     reviewUrl,
   });
+  recordReviewEvent(req.params.slug, {
+    eventType: 'action_recorded',
+    actor: 'jimmy',
+    source: 'api',
+    transition: 'action_recorded',
+    payload: {
+      actionId: resolvedAction.actionId,
+      decision,
+      requestCount: result.requests.length,
+    },
+  });
+  invalidateReviewCache(req.params.slug);
+  // Decision may also create follow-up reviews (separate slugs).
+  for (const followup of result.followups || []) invalidateReviewCache(followup.slug);
 
   res.json({
     status: result.status,
     decision,
+    actionId: resolvedAction.actionId,
     slug: req.params.slug,
     queued: result.requests.some((request) => request.status === 'queued'),
     processed: true,
@@ -1212,6 +1756,7 @@ app.post('/api/items/:slug/decide', (req, res) => {
       status: request.status,
       summary: request.summary,
     })),
+    reviewTargets: reviewTargets.summary,
     followups: result.followups.map((followup) => ({
       slug: followup.slug,
       title: followup.title,
@@ -1247,6 +1792,7 @@ app.post('/api/items/:slug/action/retry', (req, res) => {
 
     stmts.requeueAction.run({ id: latestAction.id });
     updateActionState(req.params.slug, 'queued', `Queued ${latestAction.decision} action for retry.`);
+    invalidateReviewCache(req.params.slug);
     scheduleActionDrain();
     return res.json({
       ok: true,
@@ -1265,6 +1811,7 @@ app.post('/api/items/:slug/action/retry', (req, res) => {
 
   decisionOrchestrator.requeueRequest(latestRequest.id);
   decisionOrchestrator.updateItemActionSummary(req.params.slug);
+  invalidateReviewCache(req.params.slug);
   res.json({
     ok: true,
     slug: req.params.slug,
@@ -1286,11 +1833,73 @@ app.get('/api/actions', (req, res) => {
   });
 });
 
+app.post('/api/worker/decision-requests/claim', (req, res) => {
+  const claimed = decisionOrchestrator.claimExternalRequest({
+    includeWaitingExternal: req.body?.includeWaitingExternal !== false,
+  });
+
+  if (!claimed) {
+    return res.json({ ok: true, job: null });
+  }
+
+  const item = stmts.getBySlug.get(claimed.request.slug);
+  if (!item) {
+    void decisionOrchestrator.completeExternalRequest(claimed.request.id, {
+      status: 'failed',
+      error: `Review item disappeared before Mac worker claim: ${claimed.request.slug}`,
+    }).catch((error) => console.error(`[worker] failed to mark orphaned request ${claimed.request.id}: ${error.message}`));
+    return res.json({ ok: true, job: null });
+  }
+
+  const reviewBaseUrl = getReviewBaseUrl(req);
+  res.json({
+    ok: true,
+    job: {
+      mode: claimed.mode,
+      request: claimed.request,
+      item,
+      annotations: listAnnotationsForSlug(item.slug),
+      reviewTargets: listReviewTargetsForSlug(item.slug).targets,
+      reviewUrl: buildReviewUrl(reviewBaseUrl, item.slug),
+    },
+  });
+});
+
+app.post('/api/worker/decision-requests/:id/complete', async (req, res, next) => {
+  try {
+    const result = await decisionOrchestrator.completeExternalRequest(req.params.id, req.body || {});
+    invalidateReviewCache(result.slug);
+    if (result.replacement?.slug) invalidateReviewCache(result.replacement.slug);
+    if (result.followup?.slug) invalidateReviewCache(result.followup.slug);
+    res.json({ ok: true, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/worker/notifications/claim', (_req, res) => {
+  const notification = decisionOrchestrator.claimNotification();
+  res.json({
+    ok: true,
+    notification,
+  });
+});
+
+app.post('/api/worker/notifications/:id/complete', (req, res, next) => {
+  try {
+    const result = decisionOrchestrator.completeNotification(req.params.id, req.body || {});
+    res.json({ ok: true, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/items/:slug/dismiss — one-click remove from queue
 app.post('/api/items/:slug/dismiss', (req, res) => {
   try {
     const result = stmts.dismiss.run({ slug: req.params.slug });
     if (result.changes === 0) return res.status(404).json({ error: 'Item not found' });
+    invalidateReviewCache(req.params.slug);
     res.json({ ok: true, slug: req.params.slug, status: 'dismissed' });
   } catch (err) {
     console.error('Dismiss error:', err);
@@ -1396,23 +2005,67 @@ app.post('/api/upload-base64', (req, res) => {
   }
 });
 
+const MAX_ANNOTATION_IMAGE_DATA_CHARS = Number(process.env.TURF_REVIEW_MAX_ANNOTATION_IMAGE_DATA_CHARS || 1_500_000);
+const ALLOWED_ANNOTATION_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+function normalizeAnnotationImagePayload({ anchorType, imageData, imageMime }) {
+  const data = typeof imageData === 'string' ? imageData.trim() : '';
+  if (!data) return { imageData: null, imageMime: null };
+
+  if (anchorType !== 'image') {
+    return { error: 'image_data requires anchor_type image' };
+  }
+
+  if (data.length > MAX_ANNOTATION_IMAGE_DATA_CHARS) {
+    return { error: 'image_data is too large' };
+  }
+
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+    return { error: 'image_data must be base64 encoded' };
+  }
+
+  const mime = String(imageMime || 'image/png').trim().toLowerCase();
+  if (!ALLOWED_ANNOTATION_IMAGE_MIMES.has(mime)) {
+    return { error: 'image_mime must be image/png, image/jpeg, or image/webp' };
+  }
+
+  return { imageData: data, imageMime: mime };
+}
+
 // --- Annotation endpoints ---
 app.post('/api/items/:slug/annotate', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
 
-  const { quote, anchor_type, anchor_ref, comment } = req.body;
+  const { quote, anchor_type, anchor_ref, comment, image_data, image_mime } = req.body;
   if (!comment || !comment.trim()) {
     return res.status(400).json({ error: 'comment is required' });
   }
 
   const type = anchor_type === 'image' ? 'image' : 'text';
+  const imagePayload = normalizeAnnotationImagePayload({
+    anchorType: type,
+    imageData: image_data,
+    imageMime: image_mime,
+  });
+  if (imagePayload.error) {
+    return res.status(400).json({ error: imagePayload.error });
+  }
   const result = db.prepare(`
-    INSERT INTO annotations (slug, quote, anchor_type, anchor_ref, comment)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(req.params.slug, quote || null, type, anchor_ref || null, comment.trim());
+    INSERT INTO annotations (slug, quote, anchor_type, anchor_ref, comment, image_data, image_mime)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    req.params.slug,
+    quote || null,
+    type,
+    anchor_ref || null,
+    comment.trim(),
+    imagePayload.imageData,
+    imagePayload.imageMime
+  );
 
   const annotation = db.prepare('SELECT * FROM annotations WHERE id = ?').get(result.lastInsertRowid);
+  invalidateReviewCache(req.params.slug);
   res.status(201).json(annotation);
 
   setImmediate(async () => {
@@ -1425,12 +2078,13 @@ app.post('/api/items/:slug/annotate', (req, res) => {
 });
 
 app.get('/api/items/:slug/annotations', (req, res) => {
-  res.json(listAnnotationsForSlug(req.params.slug));
+  res.json(listAnnotationsForSlug(req.params.slug, { includeImageData: true }));
 });
 
 app.delete('/api/items/:slug/annotations/:id', (req, res) => {
   const result = db.prepare('DELETE FROM annotations WHERE id = ? AND slug = ?').run(req.params.id, req.params.slug);
   if (result.changes === 0) return res.status(404).json({ error: 'Annotation not found' });
+  invalidateReviewCache(req.params.slug);
   res.json({ deleted: true });
 });
 
@@ -1439,6 +2093,7 @@ app.post('/api/items/:slug/context/regenerate', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
   db.prepare("UPDATE items SET context_status = 'generating' WHERE slug = ?").run(req.params.slug);
+  invalidateReviewCache(req.params.slug);
   generateContextMemo(req.params.slug);
   res.json({ status: 'regenerating' });
 });
@@ -1490,6 +2145,65 @@ app.get(['/funnel', '/funnel/'], (req, res) => {
   res.sendFile(path.join(config.paths.publicDir, 'funnel', 'index.html'));
 });
 
+function setArtifactHeaders(req, res, contentType) {
+  const origin = new URL(getReviewBaseUrl(req)).origin;
+  res.set('Content-Type', contentType);
+  res.set('Content-Security-Policy', [
+    "default-src 'none'",
+    `img-src ${origin} data: blob:`,
+    `style-src ${origin} 'unsafe-inline'`,
+    `script-src ${origin} 'unsafe-inline'`,
+    `font-src ${origin} data:`,
+    `connect-src ${origin}`,
+    `frame-ancestors ${origin}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; '));
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Robots-Tag', 'noindex');
+  res.set('Cache-Control', 'no-store');
+}
+
+function getCustomHtmlArtifact(slug) {
+  const item = stmts.getBySlug.get(slug);
+  if (!item || item.artifact_type !== ARTIFACT_CUSTOM_HTML) return null;
+  return item;
+}
+
+app.get(['/review/:slug/artifact', '/review/:slug/artifact/'], (req, res) => {
+  const item = getCustomHtmlArtifact(req.params.slug);
+  if (!item) return res.status(404).send('Not found');
+
+  let html = item.artifact_html || '';
+  if (item.source_path) {
+    try {
+      html = readSourceDocument(item.source_path);
+    } catch (_error) {
+      // Fall back to the publish-time snapshot if the source file moved.
+    }
+  }
+  setArtifactHeaders(req, res, 'text/html; charset=utf-8');
+  res.send(html || '<!doctype html><title>Custom HTML artifact</title>');
+});
+
+app.get('/review/:slug/artifact/*', (req, res) => {
+  const item = getCustomHtmlArtifact(req.params.slug);
+  if (!item) return res.status(404).send('Not found');
+
+  try {
+    const asset = resolveArtifactAsset({
+      item,
+      requestPath: req.params[0],
+      trackedFilesCache: new Map(),
+    });
+    setArtifactHeaders(req, res, asset.contentType);
+    res.send(fs.readFileSync(asset.path));
+  } catch (error) {
+    const code = error.code === 'ENOENT' ? 404 : 403;
+    res.status(code).send(code === 404 ? 'Not found' : 'Forbidden');
+  }
+});
+
 // Dashboard
 app.get('/', (req, res) => {
   const requestedTab = typeof req.query.tab === 'string' ? req.query.tab : 'pending';
@@ -1520,14 +2234,46 @@ app.get('/', (req, res) => {
 
 // Review page
 app.get('/review/:slug', (req, res) => {
-  const rawItem = stmts.getBySlug.get(req.params.slug);
-  const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
-  if (!item) return res.status(404).send('Not found');
-  const actions = getActions(item);
+  const slug = req.params.slug;
   const returnTab = ['decided', 'parked'].includes(req.query.fromTab) ? req.query.fromTab : 'pending';
-  const decisionRequests = stmts.listDecisionRequestsForSlug.all(req.params.slug);
 
-  res.render('review', { item, actions, returnTab, hasChat: true, decisionRequests });
+  // ---- HTML response cache (loop 10) ----
+  // Slug-keyed, bounded LRU. Cached HTML is per-slug and per-returnTab
+  // (returnTab changes the back-button href). The CSRF token is NOT
+  // emitted into review.ejs HTML (verified by grep), so the cached body
+  // is identical for every authenticated user requesting the same slug
+  // with the same fromTab tab. Cache is invalidated on every write to
+  // items/annotations/decision_requests for this slug; see
+  // invalidateReviewCache() below.
+  const cacheKey = `${slug}|${returnTab}`;
+  const cached = reviewHtmlCache.get(cacheKey);
+  if (cached !== undefined) {
+    res.set('content-type', 'text/html; charset=utf-8');
+    res.set('x-review-cache', 'hit');
+    return res.send(cached);
+  }
+
+  const rawItem = stmts.getBySlugForReviewPage.get(slug);
+  if (!rawItem) return res.status(404).send('Not found');
+  // Normalize has_markdown to a falsy/truthy primitive so existing
+  // template checks like `if (!item.markdown && ...)` keep working.
+  rawItem.markdown = rawItem.has_markdown ? '1' : '';
+  const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
+  const actions = getActions(item);
+  const decisionRequests = stmts.listDecisionRequestsForSlug.all(slug);
+  const reviewTargets = listReviewTargetsForSlug(slug);
+  const positiveTargetDecisions = Array.from(POSITIVE_TARGET_DECISIONS);
+
+  res.render('review', { item, actions, actionPolicy: getActionViewModels(item), returnTab, hasChat: true, decisionRequests, reviewTargets, positiveTargetDecisions }, (err, html) => {
+    if (err) {
+      res.set('x-review-cache', 'miss-error');
+      return res.status(500).send(err.message);
+    }
+    reviewHtmlCache.set(cacheKey, html);
+    res.set('content-type', 'text/html; charset=utf-8');
+    res.set('x-review-cache', 'miss');
+    res.send(html);
+  });
 });
 
 // --- Decision outbox drain (C4: durable notifications) ---
@@ -1581,7 +2327,66 @@ const server = app.listen(...listenArgs, () => {
     void drainDecisionOutbox();
     void decisionOrchestrator.drainDecisionRequests();
   }
+  // Pre-render top pending slugs so the first hit on each is already a cache
+  // hit. Skipped if REVIEW_HTML_CACHE_WARM=0 (used by paired benches that
+  // want a clean cold start).
+  const warmCount = Number(process.env.REVIEW_HTML_CACHE_WARM ?? 10);
+  if (warmCount > 0) setImmediate(() => warmReviewHtmlCache(warmCount));
 });
+
+function warmReviewHtmlCache(limit) {
+  let rows = [];
+  try {
+    rows = stmts.listByStatus.all('pending').slice(0, limit);
+  } catch (err) {
+    console.error('[review-cache] warm listByStatus failed:', err.message);
+    return;
+  }
+  if (!rows.length) return;
+  const renderOne = (slug) => new Promise((resolve) => {
+    try {
+      const rawItem = stmts.getBySlugForReviewPage.get(slug);
+      if (!rawItem) return resolve(false);
+      rawItem.markdown = rawItem.has_markdown ? '1' : '';
+      const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
+      const actions = getActions(item);
+      const decisionRequests = stmts.listDecisionRequestsForSlug.all(slug);
+      const reviewTargets = listReviewTargetsForSlug(slug);
+      const positiveTargetDecisions = Array.from(POSITIVE_TARGET_DECISIONS);
+      // app.render() uses res.locals defaults; supply assetVersion explicitly.
+      const renderOpts = {
+        item,
+        actions,
+        returnTab: 'pending',
+        hasChat: true,
+        decisionRequests,
+        actionPolicy: getActionViewModels(item),
+        reviewTargets,
+        positiveTargetDecisions,
+        assetVersion: ASSET_VERSION,
+      };
+      app.render('review', renderOpts, (err, html) => {
+        if (err) {
+          console.error(`[review-cache] warm render failed for ${slug}:`, err.message);
+          return resolve(false);
+        }
+        reviewHtmlCache.set(`${slug}|pending`, html);
+        resolve(true);
+      });
+    } catch (err) {
+      console.error(`[review-cache] warm exception for ${slug}:`, err.message);
+      resolve(false);
+    }
+  });
+  (async () => {
+    let warmed = 0;
+    for (const row of rows) {
+      const ok = await renderOne(row.slug);
+      if (ok) warmed += 1;
+    }
+    console.log(`[review-cache] warmed ${warmed}/${rows.length} pending slugs at startup`);
+  })();
+}
 
 server.on('error', (error) => {
   console.error(`[server] Failed to listen on port ${PORT}: ${error.message}`);

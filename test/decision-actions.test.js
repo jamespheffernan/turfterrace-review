@@ -18,6 +18,8 @@ function createTestStore() {
     title: 'Sample Action',
     markdown: '# Sample',
     rendered_html: '<h1>Sample</h1>',
+    artifact_type: 'markdown',
+    artifact_html: null,
     category: 'general',
     actions: JSON.stringify(['Noted', 'Execute', 'Inbox', 'Rework', 'Kill']),
     content_hash: createContentHash('Sample Action', '# Sample'),
@@ -53,6 +55,7 @@ test('decision action queue records, claims, and completes work durably', (t) =>
   const runnable = stmts.listRunnableActions.all({ limit: 10 });
   assert.equal(runnable.length, 1);
   assert.equal(runnable[0].status, 'queued');
+  assert.equal(stmts.listActionsByStatus.all({ status: 'queued', limit: 10 }).length, 1);
 
   const claim = stmts.markActionRunning.run({ id: runnable[0].id });
   assert.equal(claim.changes, 1);
