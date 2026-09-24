@@ -45,6 +45,7 @@ test('review context packet includes stable review session and canonical context
   assert.equal(packet.slug, 'sample-review');
   assert.equal(packet.title, 'Sample Review');
   assert.deepEqual(packet.allowedActions, ['Send', 'Edit', 'Kill']);
+  assert.deepEqual(packet.actions.map((action) => action.id), ['outreach.send', 'outreach.edit', 'outreach.kill']);
   assert.deepEqual(packet.source, {
     workspaceDir: '/tmp/workspace',
     sourcePath: '/tmp/workspace/sample.md',

@@ -22,16 +22,33 @@ const { createContentHash, createReviewDatabase, ensureDir } = require('./lib/db
 const { createChatRouter } = require('./lib/chat/routes');
 const { createFunnelDashboardService } = require('./lib/funnel/dashboard');
 const { createOpenClawClient } = require('./lib/openclaw');
+const {
+  ARTIFACT_CUSTOM_HTML,
+  classifyReviewArtifact,
+  isHtmlSource,
+  resolveArtifactAsset,
+} = require('./lib/reviews/artifacts');
 const { renderSourceDocument, stripMarkdownToPlain } = require('./lib/reviews/render');
 const { createDecisionOrchestrator } = require('./lib/reviews/orchestrator');
 const { createReviewStatements } = require('./lib/reviews/repository');
 const {
+  compactReviewTarget,
+  describeReviewTargetDecision,
   listReviewTargetsForItem,
   normalizeTargetVerdict,
   rejectedTargetFeedback,
+  summarizeReviewTargets,
 } = require('./lib/reviews/review-targets');
 const { normalizeSessionKey } = require('./lib/reviews/decision-contract');
+const { getActionPolicy, resolveActionInput } = require('./lib/reviews/kernel/action-policy');
+const { appendReviewEvent, listReviewEvents } = require('./lib/reviews/kernel/lifecycle');
+const { buildPublishStatus } = require('./lib/reviews/kernel/publish-status');
+const { buildNativeReviewURL, shouldOpenReviewInNativeApp } = require('./lib/reviews/app-links');
 const { readSourceDocument, resolveGitTrackedSource } = require('./lib/reviews/source-paths');
+const {
+  createPushNotificationService,
+  normalizeDeviceRegistration,
+} = require('./lib/push-notifications');
 const {
   ALLOWED_CATEGORIES,
   DECISION_SCHEMA_VERSION,
@@ -73,9 +90,10 @@ const ASSET_VERSION = (() => {
   try {
     const pkg = require('./package.json');
     const cssM = fs.statSync(path.join(config.paths.publicDir, 'styles.css')).mtimeMs;
+    const reviewTargetsJsM = fs.statSync(path.join(config.paths.publicDir, 'review-targets.js')).mtimeMs;
     const chatJsM = fs.statSync(path.join(config.paths.publicDir, 'chat.js')).mtimeMs;
     const chatCssM = fs.statSync(path.join(config.paths.publicDir, 'chat.css')).mtimeMs;
-    const seed = `${pkg.version || '0.0.0'}-${cssM}-${chatJsM}-${chatCssM}`;
+    const seed = `${pkg.version || '0.0.0'}-${cssM}-${reviewTargetsJsM}-${chatJsM}-${chatCssM}`;
     return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 12);
   } catch (_err) {
     return Math.floor(Date.now() / 1000).toString(36);
@@ -161,6 +179,36 @@ ensureDir(uploadsDir);
 ensureDir(config.paths.audioDir);
 
 const db = createReviewDatabase({ dataDir });
+
+// Refresh older Markdown reviews that predate front-matter hiding or
+// horizontal table containers so existing review pages improve immediately.
+const repairStoredMarkdownRenderings = db.transaction(() => {
+  const candidates = db.prepare(`
+    SELECT slug, markdown, rendered_html
+      FROM items
+     WHERE COALESCE(artifact_type, 'markdown') = 'markdown'
+       AND (
+         markdown LIKE '---%'
+         OR markdown LIKE char(65279) || '---%'
+         OR (rendered_html LIKE '%<table>%' AND rendered_html NOT LIKE '%class="table-wrap"%')
+       )
+  `).all();
+  const update = db.prepare('UPDATE items SET rendered_html = ? WHERE slug = ?');
+  let repaired = 0;
+
+  for (const item of candidates) {
+    const rendered = renderSourceDocument({ markdown: item.markdown, html: null });
+    if (rendered.rendered_html === item.rendered_html) continue;
+    update.run(rendered.rendered_html, item.slug);
+    repaired += 1;
+  }
+
+  return repaired;
+});
+const repairedMarkdownCount = repairStoredMarkdownRenderings();
+if (repairedMarkdownCount > 0) {
+  console.log(`[render] Refreshed ${repairedMarkdownCount} existing Markdown review(s).`);
+}
 const ACTION_RETRY_DELAY_SECONDS = Number(process.env.TURF_REVIEW_ACTION_RETRY_SECONDS || 60);
 const ACTION_MAX_ATTEMPTS = Number(process.env.TURF_REVIEW_ACTION_MAX_ATTEMPTS || 3);
 const WEB_ONLY_MODE = process.env.TURF_REVIEW_WEB_ONLY === '1';
@@ -227,6 +275,18 @@ app.use('/tts-cache', express.static(config.paths.ttsCacheDir));
 app.use('/audio', express.static(config.paths.audioDir));
 app.use('/uploads', express.static(uploadsDir));
 
+// Preserve normal HTTPS review links while handing Apple-device clicks to the
+// native app. `?web=1` gives an explicit browser route when it is needed.
+app.get('/review/:slug', (req, res, next) => {
+  const shouldOpen = shouldOpenReviewInNativeApp({
+    userAgent: req.get('user-agent'),
+    webOverride: req.query.web,
+    iosEnabled: process.env.TURF_REVIEW_IOS_DEEP_LINKS === '1',
+  });
+  if (!shouldOpen) return next();
+  return res.redirect(302, buildNativeReviewURL(req.params.slug));
+});
+
 app.use(session({
   secret: config.auth.sessionSecret,
   resave: false,
@@ -247,7 +307,10 @@ function auth(req, res, next) {
   const header = req.headers.authorization;
   if (header && header.startsWith('Basic ')) {
     const [u, p] = Buffer.from(header.split(' ')[1], 'base64').toString().split(':');
-    if (u === user && p === pass) return next();
+    if (u === user && p === pass) {
+      if (req.session) req.session.authenticated = true;
+      return next();
+    }
   }
 
   // Login page routes bypass auth
@@ -639,6 +702,10 @@ function getActions(item) {
   return canonical ? [...canonical] : [];
 }
 
+function getActionViewModels(item) {
+  return getActionPolicy(item?.category || 'general');
+}
+
 function buildReviewUrl(baseUrl, slug) {
   return new URL(`/review/${slug}`, baseUrl).toString();
 }
@@ -826,17 +893,23 @@ function gitCommitIfNeeded(workspaceDir, sourcePath, commitMessage) {
 
 function republishItemFromSource(item) {
   const sourceText = readSourceDocument(item.source_path);
-  const ext = path.extname(item.source_path).toLowerCase();
-  const rendered = renderSourceDocument({
-    markdown: ext === '.html' || ext === '.htm' ? '' : sourceText,
-    html: ext === '.html' || ext === '.htm' ? sourceText : null,
+  const artifact = classifyReviewArtifact({
+    artifactType: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? ARTIFACT_CUSTOM_HTML : 'markdown',
+    markdown: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? '' : sourceText,
+    html: item.artifact_type === ARTIFACT_CUSTOM_HTML || isHtmlSource(item.source_path) ? sourceText : null,
+    sourcePath: item.source_path,
   });
-  const contentHash = createContentHash(item.title, rendered.markdown || sourceText);
+  const rendered = artifact.artifactType === ARTIFACT_CUSTOM_HTML
+    ? { markdown: '', rendered_html: artifact.renderedHtml }
+    : renderSourceDocument({ markdown: artifact.markdown, html: null });
+  const contentHash = createContentHash(item.title, artifact.hashBody);
 
   db.prepare(`
     UPDATE items
     SET markdown = @markdown,
         rendered_html = @rendered_html,
+        artifact_type = @artifact_type,
+        artifact_html = @artifact_html,
         content_hash = @content_hash,
         status = 'pending',
         decision = NULL,
@@ -856,6 +929,8 @@ function republishItemFromSource(item) {
     slug: item.slug,
     markdown: rendered.markdown,
     rendered_html: rendered.rendered_html,
+    artifact_type: artifact.artifactType,
+    artifact_html: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? artifact.html : null,
     content_hash: contentHash,
     actions: JSON.stringify(getCanonicalActions(item.category)),
     decision_schema_version: DECISION_SCHEMA_VERSION,
@@ -879,6 +954,35 @@ function republishItemFromSource(item) {
 
 // --- Prepared statements ---
 const stmts = createReviewStatements(db);
+const pushNotifications = createPushNotificationService({
+  db,
+  baseUrl: config.reviewBaseUrl,
+});
+const insertReviewWithPushDeliveries = db.transaction((item) => {
+  stmts.insert.run(item);
+  return pushNotifications.enqueueReview(item.slug);
+});
+pushNotifications.start();
+
+function recordReviewEvent(slug, event) {
+  try {
+    appendReviewEvent(stmts, slug, event);
+    if (event?.transition && stmts.updateItemWorkflowState) {
+      stmts.updateItemWorkflowState.run({
+        slug,
+        workflow_state: event.transition,
+        public_verification_status: event.publicVerificationStatus || null,
+        public_verification_message: event.publicVerificationMessage || null,
+        public_verification_checked_at: event.publicVerificationStatus
+          ? new Date().toISOString().slice(0, 19).replace('T', ' ')
+          : null,
+      });
+    }
+  } catch (error) {
+    console.error(`[review-events] Failed to record ${event?.eventType || event?.transition || 'event'} for ${slug}: ${error.message}`);
+  }
+}
+
 const decisionOrchestrator = createDecisionOrchestrator({
   config,
   db,
@@ -960,7 +1064,8 @@ function listAnnotationsForSlug(slug, options = {}) {
 function listReviewTargetsForSlug(slug) {
   const item = stmts.getBySlug.get(slug);
   if (!item) return { slug, targets: [], summary: { total: 0, approved: 0, rejected: 0, undecided: 0, decided: 0, complete: true } };
-  return listReviewTargetsForItem(stmts, item);
+  const targets = stmts.listReviewTargetsForSlug.all(slug).map(compactReviewTarget);
+  return { slug, targets, summary: summarizeReviewTargets(targets) };
 }
 
 const POSITIVE_TARGET_DECISIONS = new Set(['Approve', 'Execute', 'Send']);
@@ -1217,6 +1322,42 @@ if (!WEB_ONLY_MODE) {
 }
 
 // --- API Routes ---
+app.post('/api/push/devices', (req, res, next) => {
+  let registration;
+  try {
+    registration = normalizeDeviceRegistration(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const result = pushNotifications.registerDevice(registration);
+    return res.status(result.created ? 201 : 200).json({
+      ok: true,
+      created: result.created,
+      deliveryConfigured: result.configured,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.delete('/api/push/devices', (req, res, next) => {
+  let registration;
+  try {
+    registration = normalizeDeviceRegistration(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const result = pushNotifications.unregisterDevice(registration);
+    return res.json({ ok: true, deactivated: result.deactivated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 
 // Publish a new review item (markdown or raw HTML)
 app.post('/api/publish', (req, res) => {
@@ -1225,6 +1366,7 @@ app.post('/api/publish', (req, res) => {
       title,
       markdown,
       html,
+      artifactType,
       slug: rawSlug,
       category,
       actions,
@@ -1261,15 +1403,27 @@ app.post('/api/publish', (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
+    let artifact;
+    try {
+      artifact = classifyReviewArtifact({
+        artifactType,
+        markdown,
+        html,
+        sourcePath: resolvedSource.sourcePath,
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
     const serializedOnApprove = serializeOnApprove(onApprove);
     const resolvedOriginSessionKey = resolveOriginSessionKey({
       originSessionKey,
       sourceSessionKey,
       draftSessionKey,
-      markdown: markdown || html || '',
+      markdown: artifact.markdown || artifact.html || '',
       onApprove: serializedOnApprove,
     });
-    const content_hash = createContentHash(title, markdown || html || '');
+    const content_hash = createContentHash(title, artifact.hashBody);
     const existing = stmts.getByContentHash.get(content_hash);
     if (existing) {
       if (resolvedOriginSessionKey) {
@@ -1283,19 +1437,26 @@ app.post('/api/publish', (req, res) => {
         url: `/review/${existing.slug}`,
         deduped: true,
         originSessionKey: resolvedOriginSessionKey,
+        artifactType: artifact.artifactType,
+        artifactUrl: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? `/review/${existing.slug}/artifact/` : null,
+        actionPolicy: getActionViewModels(stmts.getBySlug.get(existing.slug)),
       });
     }
 
     const slug = rawSlug ? slugify(rawSlug) : slugify(title) + '-' + Date.now().toString(36);
-    const rendered = renderSourceDocument({ markdown, html });
+    const rendered = artifact.artifactType === ARTIFACT_CUSTOM_HTML
+      ? { markdown: '', rendered_html: artifact.renderedHtml }
+      : renderSourceDocument({ markdown: artifact.markdown, html: null });
     const actionsJson = JSON.stringify(canonicalActions);
     const sessionKey = getSessionKey(slug);
 
-    stmts.insert.run({
+    insertReviewWithPushDeliveries({
       slug,
       title,
       markdown: rendered.markdown,
       rendered_html: rendered.rendered_html,
+      artifact_type: artifact.artifactType,
+      artifact_html: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? artifact.html : null,
       category: normalizedCategory,
       actions: actionsJson,
       content_hash,
@@ -1309,6 +1470,32 @@ app.post('/api/publish', (req, res) => {
       parent_slug: null,
       supersedes_slug: null,
       created_by_request_id: null,
+    });
+    recordReviewEvent(slug, {
+      eventType: 'publish_intent',
+      actor: 'operator',
+      source: 'api',
+      transition: 'publish_intent',
+      payload: { title, category: normalizedCategory, sourcePath: resolvedSource.sourcePath },
+    });
+    recordReviewEvent(slug, {
+      eventType: 'source_validated',
+      actor: 'operator',
+      source: 'api',
+      transition: 'source_validated',
+      payload: {
+        workspaceDir: resolvedSource.workspaceDir,
+        sourcePath: resolvedSource.sourcePath,
+        relativeToGitRoot: resolvedSource.relativeToGitRoot,
+      },
+    });
+    recordReviewEvent(slug, {
+      eventType: 'published_unverified',
+      actor: 'system',
+      source: 'api',
+      transition: 'published_unverified',
+      publicVerificationStatus: 'unverified',
+      payload: { artifactType: artifact.artifactType },
     });
     if (resolvedOriginSessionKey) {
       stmts.setItemOriginSession.run({
@@ -1335,12 +1522,22 @@ app.post('/api/publish', (req, res) => {
 
     // Broadcast live-refresh event to all connected dashboards
     broadcastSSE('new-item', { slug, title, category: normalizedCategory });
+    pushNotifications.scheduleDrain();
 
     const reviewBaseUrl = getReviewBaseUrl(req);
     const reviewUrl = buildReviewUrl(reviewBaseUrl, slug);
     const item = stmts.getBySlug.get(slug);
     decisionOrchestrator.recordIntentForItem(item, serializedOnApprove);
     const reviewTargets = listReviewTargetsForItem(stmts, item);
+    recordReviewEvent(slug, {
+      eventType: 'public_verified',
+      actor: 'system',
+      source: 'api',
+      transition: 'public_verified',
+      publicVerificationStatus: 'verified',
+      publicVerificationMessage: reviewUrl,
+      payload: { reviewUrl, targetCount: reviewTargets.summary.total },
+    });
 
     setImmediate(async () => {
       try {
@@ -1356,7 +1553,10 @@ app.post('/api/publish', (req, res) => {
       deduped: false,
       sessionKey,
       originSessionKey: resolvedOriginSessionKey,
+      artifactType: artifact.artifactType,
+      artifactUrl: artifact.artifactType === ARTIFACT_CUSTOM_HTML ? `/review/${slug}/artifact/` : null,
       actions: canonicalActions,
+      actionPolicy: getActionViewModels(item),
       reviewTargets: reviewTargets.summary,
     });
   } catch (err) {
@@ -1387,7 +1587,21 @@ app.get('/api/items', (req, res) => {
 app.get('/api/items/:slug', (req, res) => {
   const item = stmts.getBySlug.get(req.params.slug);
   if (!item) return res.status(404).json({ error: 'Not found' });
-  res.json(item);
+  res.json({
+    ...item,
+    actionPolicy: getActionViewModels(item),
+  });
+});
+
+app.get('/api/items/:slug/status', (req, res) => {
+  const item = stmts.getBySlug.get(req.params.slug);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  res.json(buildPublishStatus({
+    item,
+    reviewTargets: listReviewTargetsForItem(stmts, item),
+    requests: stmts.listDecisionRequestsForSlug.all(req.params.slug),
+    events: listReviewEvents(stmts, req.params.slug),
+  }));
 });
 
 app.get('/api/items/:slug/targets', (req, res) => {
@@ -1407,9 +1621,20 @@ app.patch('/api/items/:slug/targets/:targetKey', (req, res) => {
   });
   if (!target) return res.status(404).json({ error: 'Review target not found' });
 
-  const verdict = normalizeTargetVerdict(req.body?.verdict);
+  const decision = describeReviewTargetDecision(target.label);
+  const requestedVerdict = String(req.body?.verdict || '').trim().toLowerCase();
+  let verdict = normalizeTargetVerdict(requestedVerdict);
+  if (requestedVerdict.startsWith('choice:') && decision.kind === 'choice') {
+    const choiceValue = requestedVerdict.slice('choice:'.length);
+    if (decision.options.some((option) => option.value === choiceValue)) {
+      verdict = requestedVerdict;
+    }
+  }
+  if (decision.kind === 'choice' && verdict !== 'unset' && !String(verdict || '').startsWith('choice:')) {
+    verdict = null;
+  }
   if (!verdict) {
-    return res.status(400).json({ error: 'verdict must be approved, rejected, or unset' });
+    return res.status(400).json({ error: 'The decision does not match this review item.' });
   }
 
   if (verdict === 'unset') {
@@ -1428,6 +1653,16 @@ app.patch('/api/items/:slug/targets/:targetKey', (req, res) => {
     });
   }
 
+  recordReviewEvent(req.params.slug, {
+    eventType: 'target_judged',
+    actor: 'jimmy',
+    source: 'api',
+    transition: 'target_judged',
+    payload: {
+      targetKey: req.params.targetKey,
+      verdict,
+    },
+  });
   invalidateReviewCache(req.params.slug);
   const response = listReviewTargetsForItem(stmts, item);
   res.json({
@@ -1447,8 +1682,17 @@ app.post('/api/items/:slug/decide', (req, res) => {
     });
   }
 
-  const { decision, feedback } = req.body;
-  if (!decision) return res.status(400).json({ error: 'decision is required' });
+  let resolvedAction;
+  try {
+    resolvedAction = resolveActionInput(item, req.body || {});
+  } catch (error) {
+    return res.status(400).json({
+      error: error.message,
+      actions: getActionViewModels(item),
+    });
+  }
+  const decision = resolvedAction.label;
+  const { feedback } = req.body;
   if (!isAllowedDecision(item, decision)) {
     return res.status(400).json({
       error: `Invalid decision for ${item.category}. Allowed: ${getActions(item).join(', ')}`,
@@ -1477,6 +1721,17 @@ app.post('/api/items/:slug/decide', (req, res) => {
     reviewTargets: reviewTargets.targets,
     reviewUrl,
   });
+  recordReviewEvent(req.params.slug, {
+    eventType: 'action_recorded',
+    actor: 'jimmy',
+    source: 'api',
+    transition: 'action_recorded',
+    payload: {
+      actionId: resolvedAction.actionId,
+      decision,
+      requestCount: result.requests.length,
+    },
+  });
   invalidateReviewCache(req.params.slug);
   // Decision may also create follow-up reviews (separate slugs).
   for (const followup of result.followups || []) invalidateReviewCache(followup.slug);
@@ -1484,6 +1739,7 @@ app.post('/api/items/:slug/decide', (req, res) => {
   res.json({
     status: result.status,
     decision,
+    actionId: resolvedAction.actionId,
     slug: req.params.slug,
     queued: result.requests.some((request) => request.status === 'queued'),
     processed: true,
@@ -1889,6 +2145,65 @@ app.get(['/funnel', '/funnel/'], (req, res) => {
   res.sendFile(path.join(config.paths.publicDir, 'funnel', 'index.html'));
 });
 
+function setArtifactHeaders(req, res, contentType) {
+  const origin = new URL(getReviewBaseUrl(req)).origin;
+  res.set('Content-Type', contentType);
+  res.set('Content-Security-Policy', [
+    "default-src 'none'",
+    `img-src ${origin} data: blob:`,
+    `style-src ${origin} 'unsafe-inline'`,
+    `script-src ${origin} 'unsafe-inline'`,
+    `font-src ${origin} data:`,
+    `connect-src ${origin}`,
+    `frame-ancestors ${origin}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; '));
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Robots-Tag', 'noindex');
+  res.set('Cache-Control', 'no-store');
+}
+
+function getCustomHtmlArtifact(slug) {
+  const item = stmts.getBySlug.get(slug);
+  if (!item || item.artifact_type !== ARTIFACT_CUSTOM_HTML) return null;
+  return item;
+}
+
+app.get(['/review/:slug/artifact', '/review/:slug/artifact/'], (req, res) => {
+  const item = getCustomHtmlArtifact(req.params.slug);
+  if (!item) return res.status(404).send('Not found');
+
+  let html = item.artifact_html || '';
+  if (item.source_path) {
+    try {
+      html = readSourceDocument(item.source_path);
+    } catch (_error) {
+      // Fall back to the publish-time snapshot if the source file moved.
+    }
+  }
+  setArtifactHeaders(req, res, 'text/html; charset=utf-8');
+  res.send(html || '<!doctype html><title>Custom HTML artifact</title>');
+});
+
+app.get('/review/:slug/artifact/*', (req, res) => {
+  const item = getCustomHtmlArtifact(req.params.slug);
+  if (!item) return res.status(404).send('Not found');
+
+  try {
+    const asset = resolveArtifactAsset({
+      item,
+      requestPath: req.params[0],
+      trackedFilesCache: new Map(),
+    });
+    setArtifactHeaders(req, res, asset.contentType);
+    res.send(fs.readFileSync(asset.path));
+  } catch (error) {
+    const code = error.code === 'ENOENT' ? 404 : 403;
+    res.status(code).send(code === 404 ? 'Not found' : 'Forbidden');
+  }
+});
+
 // Dashboard
 app.get('/', (req, res) => {
   const requestedTab = typeof req.query.tab === 'string' ? req.query.tab : 'pending';
@@ -1946,8 +2261,10 @@ app.get('/review/:slug', (req, res) => {
   const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
   const actions = getActions(item);
   const decisionRequests = stmts.listDecisionRequestsForSlug.all(slug);
+  const reviewTargets = listReviewTargetsForSlug(slug);
+  const positiveTargetDecisions = Array.from(POSITIVE_TARGET_DECISIONS);
 
-  res.render('review', { item, actions, returnTab, hasChat: true, decisionRequests }, (err, html) => {
+  res.render('review', { item, actions, actionPolicy: getActionViewModels(item), returnTab, hasChat: true, decisionRequests, reviewTargets, positiveTargetDecisions }, (err, html) => {
     if (err) {
       res.set('x-review-cache', 'miss-error');
       return res.status(500).send(err.message);
@@ -2034,6 +2351,8 @@ function warmReviewHtmlCache(limit) {
       const item = resolveAudioStatus(resolveAudioStatus(rawItem, 'tts'), 'context');
       const actions = getActions(item);
       const decisionRequests = stmts.listDecisionRequestsForSlug.all(slug);
+      const reviewTargets = listReviewTargetsForSlug(slug);
+      const positiveTargetDecisions = Array.from(POSITIVE_TARGET_DECISIONS);
       // app.render() uses res.locals defaults; supply assetVersion explicitly.
       const renderOpts = {
         item,
@@ -2041,6 +2360,9 @@ function warmReviewHtmlCache(limit) {
         returnTab: 'pending',
         hasChat: true,
         decisionRequests,
+        actionPolicy: getActionViewModels(item),
+        reviewTargets,
+        positiveTargetDecisions,
         assetVersion: ASSET_VERSION,
       };
       app.render('review', renderOpts, (err, html) => {

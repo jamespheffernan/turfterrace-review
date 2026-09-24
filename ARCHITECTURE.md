@@ -19,6 +19,8 @@ Current review categories keep the existing UX and buttons:
 - `confirmation`: `Approve`, `Rework`, `Kill`, `No further action`
 - `clarification`: `Execute`, `Rework`, `Kill`, `No further action`
 
+Every button also has a stable action id, for example `general.execute`. Clients should store and submit ids. Labels stay human-facing and can change without breaking stored decisions.
+
 Button meanings:
 
 - `Send`: approve the visible outbound copy, recipients, and stated send plan. If any of those are missing, Turf Review creates a clarification review instead of treating the send as approved.
@@ -30,10 +32,27 @@ Button meanings:
 
 Feedback is authoritative. If Jimmy responds to an email approval by asking for a meeting or a task instead, Turf Review records the decision and creates the downstream requests implied by that response.
 
+## Workflow Kernel
+
+The workflow kernel owns the rules that must stay stable across web, native, CLI, and worker code:
+
+- `action-policy.js`: category action ids, labels, and compatibility checks.
+- `review-targets.js`: extraction of per-item review targets from trusted headings or explicit publish manifests.
+- `adapter-descriptors`: pure descriptions of work the system can request, such as agent builds, follow-ups, task creation, calendar creation, outreach approval, confirmation, and clarification.
+- `lifecycle.js`: append-only review events plus replay into a projected workflow state.
+- `publish-status.js`: status JSON for CLI, native, and API callers.
+- `migrations.js`: audit/apply helpers for moving legacy rows onto the kernel without inventing missing provenance.
+
+The rule is simple: append an event first, then update the projection. The projection exists for fast reads. The event log exists so operators can explain what happened.
+
 ## Durable Tables
 
 New decisions use the v3 contract:
 
+- `review_items.workflow_state`: current projected workflow state.
+- `review_items.public_verification_*`: whether the public review surface exists and was checked after publish.
+- `review_items.migration_marker`: migration class for legacy records.
+- `review_events`: append-only lifecycle events for publish, action, request, proof, blocker, and migration state.
 - `review_intents`: what the review is asking Jimmy to decide, including any stated approval/send plan.
 - `decisions`: immutable record of Jimmy's decision text and feedback.
 - `decision_requests`: decomposed downstream requests, with status, sensitivity, attempts, and links to follow-up reviews.
@@ -83,17 +102,20 @@ Important environment variables:
 
 1. Backup the current production DB files together: `data/reviews.db`, `data/reviews.db-wal`, and `data/reviews.db-shm`.
 2. Deploy this code without migrating or deleting existing review items. The schema migration is additive.
-3. Run the app against a disposable `TURF_REVIEW_DATA_DIR` first and publish/decide a test review.
-4. Confirm a decision writes `decisions` and `decision_requests`, moves the item out of `pending`, and does not enqueue new `decision_outbox` rows.
-5. Start production with `TURF_REVIEW_WEB_ONLY` unset when the app process is allowed to execute OmniFocus, Calendar, OpenClaw, and send-queue work. Use `TURF_REVIEW_WEB_ONLY=1` only for display-only hosting.
-6. Leave archived/legacy items untouched. Existing links still resolve; old legacy action rows can still be retried from the existing endpoint.
-7. Keep the old SSE listener harmless during switchover by relying on the new `review-processed` event. It does not emit the legacy `decision` event for new decisions.
+3. Run `node scripts/migrate-review-kernel.js --audit --json` and review the migration classes.
+4. Run `node scripts/migrate-review-kernel.js --apply --json` only after backup. The apply path writes a timestamped DB copy first.
+5. Run the app against a disposable `TURF_REVIEW_DATA_DIR` first and publish/decide a test review.
+6. Confirm a decision writes `decisions`, `decision_requests`, and `review_events`; moves the item out of `pending`; and does not enqueue new `decision_outbox` rows.
+7. Check `GET /api/items/:slug/status` for public verification, target summary, action policy, request state, and proof state.
+8. Start production with `TURF_REVIEW_WEB_ONLY` unset when the app process is allowed to execute OmniFocus, Calendar, OpenClaw, and send-queue work. Use `TURF_REVIEW_WEB_ONLY=1` only for display-only hosting.
+9. Leave archived/legacy items untouched. Existing links still resolve; old legacy action rows can still be retried from the existing endpoint.
+10. Keep the old SSE listener harmless during switchover by relying on the new `review-processed` event. It does not emit the legacy `decision` event for new decisions.
 
 ## Validation
 
 Minimum validation before production cutover:
 
-- `npm test`
+- `npm test`, or `npx -y node@22 --test` when the local default Node cannot load `better-sqlite3`
 - local disposable-DB publish/decide smoke
 - rendered dashboard/review check in a browser
 - one production no-action test item

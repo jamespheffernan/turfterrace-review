@@ -35,6 +35,8 @@ function insertReview(stmts, overrides = {}) {
     title,
     markdown,
     rendered_html: overrides.rendered_html || '<h1>Parent Review</h1>',
+    artifact_type: overrides.artifact_type || 'markdown',
+    artifact_html: overrides.artifact_html || null,
     category,
     actions: JSON.stringify(getCanonicalActions(category)),
     content_hash: createContentHash(title, markdown),
@@ -126,6 +128,47 @@ test('confirmation follow-up resolves the source request and creates child work'
   const childRequest = stmts.listDecisionRequestsForSlug.all(followup.slug)[0];
   assert.equal(childRequest.parent_request_id, sourceRequest.id);
   assert.equal(childRequest.status, 'queued');
+});
+
+test('confirmation follow-up approval resumes the source request exactly once', (t) => {
+  const previousWebOnly = process.env.TURF_REVIEW_WEB_ONLY;
+  process.env.TURF_REVIEW_WEB_ONLY = '1';
+  t.after(() => {
+    if (previousWebOnly === undefined) delete process.env.TURF_REVIEW_WEB_ONLY;
+    else process.env.TURF_REVIEW_WEB_ONLY = previousWebOnly;
+  });
+
+  const { db, stmts } = createStore(t);
+  const orchestrator = createOrchestrator(db, stmts);
+  const item = insertReview(stmts);
+  orchestrator.recordIntentForItem(item);
+
+  const first = orchestrator.handleDecision(item, {
+    decision: 'Execute',
+    feedback: 'send this email tomorrow',
+    annotations: [],
+    reviewUrl: 'https://review.turfterrace.com/review/parent-review',
+  });
+
+  const sourceRequest = stmts.listDecisionRequestsForSlug.all(item.slug)[0];
+  const followup = stmts.getBySlug.get(first.followups[0].slug);
+  orchestrator.handleDecision(followup, {
+    decision: 'Approve',
+    feedback: '',
+    annotations: [],
+    reviewUrl: `https://review.turfterrace.com/review/${followup.slug}`,
+  });
+  const duplicate = orchestrator.handleDecision(followup, {
+    decision: 'Approve',
+    feedback: '',
+    annotations: [],
+    reviewUrl: `https://review.turfterrace.com/review/${followup.slug}`,
+  });
+
+  assert.equal(duplicate.requests.length, 0);
+  const children = stmts.listDecisionRequestsForSlug.all(followup.slug)
+    .filter((request) => request.parent_request_id === sourceRequest.id);
+  assert.equal(children.length, 1);
 });
 
 test('approved software build plan creates build-mode agent request', async (t) => {

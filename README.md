@@ -22,7 +22,9 @@ Replace the example values in `.env` before exposing the server outside a local 
 - Software plans can also store the OpenClaw session that drafted the plan.
 - Review chat, annotations, and ordinary decisions accumulate in that review session.
 - New publishes must include a git-backed `workspaceDir` and `sourcePath`.
-- Markdown task-list items and approval/checklist sections become native per-item review targets.
+- Markdown review-target sections and explicit publish manifests become native per-item review targets.
+- Each action has a stable id such as `general.execute`; labels remain display text.
+- Each review has a replayable event log and a status endpoint.
 - A decision moves the item out of the pending inbox immediately.
 - Decision feedback is decomposed into durable downstream requests.
 - Approved software build plans create `agent_build` requests, which run the agent in build mode.
@@ -33,12 +35,14 @@ Replace the example values in `.env` before exposing the server outside a local 
 
 ## Canonical Decisions
 
-- `outreach` → `Send`, `Edit`, `Kill`
-- `kitchenlux` → `Execute`, `Inbox`, `Rework`, `Park`, `Kill`
-- `general` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
-- `admin` → `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
-- `confirmation` → `Approve`, `Rework`, `Kill`, `No further action`
-- `clarification` → `Execute`, `Rework`, `Kill`, `No further action`
+- `outreach` -> `Send`, `Edit`, `Kill`
+- `kitchenlux` -> `Execute`, `Inbox`, `Rework`, `Park`, `Kill`
+- `general` -> `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
+- `admin` -> `Noted`, `Execute`, `Inbox`, `Rework`, `Kill`
+- `confirmation` -> `Approve`, `Rework`, `Kill`, `No further action`
+- `clarification` -> `Execute`, `Rework`, `Kill`, `No further action`
+
+Clients should send the action id returned by the API, for example `general.execute`. The server still accepts the legacy label for compatibility, but it rejects stale or mismatched id/label pairs.
 
 ## Review Target Format
 
@@ -46,10 +50,19 @@ Use review targets when one document contains several things Jimmy must approve 
 
 Turf Review extracts native per-item targets from:
 
-- any Markdown task-list item: `- [ ] item text`
-- any list item under a heading containing `approval`, `approve`, `reject`, `yes/no`, `yes-no`, `decide`, `decision`, `review target`, `items to review`, `per-item`, or `checklist`
+- Markdown task-list items inside a designated review-target section;
+- list items inside a designated review-target section;
+- explicit publish-manifest targets sent by trusted tooling.
 
-Prefer task-list syntax for new uploads:
+Designated section headings are exact, normalized matches:
+
+- `Items to review`
+- `Review targets`
+- `Approval list`
+- `Approval checklist`
+- `Review checklist`
+
+Prefer this shape for new uploads:
 
 ```markdown
 ## Items to review
@@ -59,7 +72,7 @@ Prefer task-list syntax for new uploads:
 - [ ] Drop the unverified supplier intro
 ```
 
-Do not use review targets for background notes, ordinary explanatory bullets, or todos that belong in OmniFocus. Put enough text in each item for it to stand alone in the native Items panel.
+Do not put implementation todos, requirements, acceptance criteria, or background notes under those headings unless Jimmy must make a separate yes/no call on each row. Put enough text in each item for it to stand alone in the native Items panel.
 
 ## Software Build Plans
 
@@ -91,11 +104,14 @@ The API also accepts `originSessionKey`, `sourceSessionKey`, or `draftSessionKey
 - Routing helpers: [lib/review-routing.js](lib/review-routing.js)
 - Decision contract: [lib/reviews/decision-contract.js](lib/reviews/decision-contract.js)
 - Decision orchestrator: [lib/reviews/orchestrator.js](lib/reviews/orchestrator.js)
+- Workflow kernel: [lib/reviews/kernel](lib/reviews/kernel)
 - OpenClaw client: [lib/openclaw.js](lib/openclaw.js)
 - Chat routes/context: [lib/chat/routes.js](lib/chat/routes.js), [lib/chat/openclaw-context.js](lib/chat/openclaw-context.js)
 - Publish script: [publish-review.sh](publish-review.sh)
+- CLI: [scripts/turf-review.js](scripts/turf-review.js)
+- Kernel migration: [scripts/migrate-review-kernel.js](scripts/migrate-review-kernel.js)
 - Pending-item migration example: [scripts/pending-item-migration.example.json](scripts/pending-item-migration.example.json)
-- Native client: [TurfReviewNative](TurfReviewNative)
+- Legacy review-doc source repo: `/Users/username/GitHub/turfterrace-review-docs`
 
 ## Legacy Pending Backfill
 
@@ -105,11 +121,21 @@ The 5 previously pending legacy items were moved onto the git-backed review-docs
 
 ```bash
 npm test
+npx -y node@22 --test
 ./publish-review.sh path/to/file.md "Title" category
 ./publish-review.sh path/to/file.md "Title" category --origin-session "agent:main:review:plan-session"
+node scripts/turf-review.js publish /absolute/path/to/file.md "Title" general --ad-hoc
+node scripts/turf-review.js status review-slug
+node scripts/turf-review.js inspect /absolute/path/to/file.md
+node scripts/turf-review.js doctor
+node scripts/migrate-review-kernel.js --audit --json
+node scripts/migrate-review-kernel.js --apply --json
 node scripts/migrate-pending-items.js --config scripts/pending-item-migration.example.json
+curl -u "$REVIEW_USER:$REVIEW_PASSWORD" /api/items/:slug/status
 curl -u "$REVIEW_USER:$REVIEW_PASSWORD" /api/items/:slug/actions
 ```
+
+Use the Node 22 command when the local default Node cannot load the checked-in `better-sqlite3` native module.
 
 For isolated local smoke runs, set `TURF_REVIEW_DATA_DIR` to a temporary directory. Set `OPENCLAW_TOKEN` or `OPENCLAW_GATEWAY_TOKEN` for review-aware chat and decision execution.
 

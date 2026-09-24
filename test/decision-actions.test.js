@@ -18,6 +18,8 @@ function createTestStore() {
     title: 'Sample Action',
     markdown: '# Sample',
     rendered_html: '<h1>Sample</h1>',
+    artifact_type: 'markdown',
+    artifact_html: null,
     category: 'general',
     actions: JSON.stringify(['Noted', 'Execute', 'Inbox', 'Rework', 'Kill']),
     content_hash: createContentHash('Sample Action', '# Sample'),

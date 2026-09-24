@@ -2,9 +2,14 @@
 <% var reviewChatEnabled = (typeof hasChat !== 'undefined') ? hasChat : true; %>
 <% var chatActionNames = ['chat with author', 'chat', 'ask ai']; %>
 <% var sidebarActions = (typeof actions !== 'undefined' && actions) ? actions.filter(function(a) { return chatActionNames.indexOf(a.toLowerCase()) === -1; }) : []; %>
+<% var actionPolicyRows = (typeof actionPolicy !== 'undefined' && actionPolicy) ? actionPolicy : []; %>
+<% var actionIdsByLabel = actionPolicyRows.reduce(function(acc, action) { acc[action.label] = action.id; return acc; }, {}); %>
 <% var actionStatus = item.action_status || item.approval_status; %>
 <% var actionMessage = item.action_message || item.approval_message; %>
 <% var requestRows = (typeof decisionRequests !== 'undefined' && decisionRequests) ? decisionRequests : []; %>
+<% var targetState = (typeof reviewTargets !== 'undefined' && reviewTargets) ? reviewTargets : { slug: item.slug, targets: [], summary: { total: 0, approved: 0, rejected: 0, undecided: 0, decided: 0, complete: true } }; %>
+<% var positiveDecisionNames = (typeof positiveTargetDecisions !== 'undefined' && positiveTargetDecisions) ? positiveTargetDecisions : []; %>
+<% var reviewTargetsJson = JSON.stringify({ reviewTargets: targetState, positiveTargetDecisions: positiveDecisionNames, isPending: item.status === 'pending' }).replace(/</g, '\\u003c'); %>
 <%
   function proofSummary(request) {
     if (request.last_error && ['failed', 'blocked_system', 'blocked_decision'].indexOf(request.status) !== -1) {
@@ -33,6 +38,7 @@
 <% if (reviewChatEnabled) { %>
 <link rel="stylesheet" href="/chat.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
 <% } %>
+<script type="application/json" id="reviewTargetsData"><%- reviewTargetsJson %></script>
 
 <!-- Sticky back button -->
 <a href="/?tab=<%= returnTab %>" class="back-btn" title="Back to queue">
@@ -40,7 +46,7 @@
   <span>Queue</span>
 </a>
 
-<div class="review-layout">
+<div class="review-layout <%= item.artifact_type === 'custom_html' ? 'review-layout--artifact' : '' %>">
 <article class="review-page">
   <div class="review-header">
     <div class="review-meta">
@@ -132,9 +138,9 @@
   </div>
   <% } %>
 
-  <% if (!item.markdown && (item.rendered_html.includes('<!DOCTYPE') || item.rendered_html.includes('<html'))) { %>
+  <% if (item.artifact_type === 'custom_html') { %>
     <div class="rendered-content rendered-content--fullpage">
-      <iframe srcdoc="<%- item.rendered_html.replace(/\"/g, '&quot;') %>" style="width:100%;min-height:80vh;border:1px solid var(--border-light);border-radius:4px;"></iframe>
+      <iframe class="artifact-frame" src="/review/<%= item.slug %>/artifact/" sandbox="allow-scripts allow-popups" referrerpolicy="no-referrer" title="<%= item.title %>"></iframe>
     </div>
   <% } else { %>
     <div class="rendered-content">
@@ -160,9 +166,23 @@
     <% } %>
 
     <div class="decide-view" id="decideView">
+      <% if (targetState.summary && targetState.summary.total > 0) { %>
+      <section class="review-target-panel" data-review-target-panel>
+        <div class="review-target-panel__header">
+          <span>Items to review</span>
+          <span class="review-target-summary" data-review-target-summary>
+            <%= targetState.summary.decided %> of <%= targetState.summary.total %> decided
+          </span>
+        </div>
+        <div class="review-target-warning" data-review-target-warning hidden>
+          Decide every item before submitting this action.
+        </div>
+        <div class="review-target-list" data-review-target-list></div>
+      </section>
+      <% } %>
       <div class="action-sidebar-buttons">
         <% sidebarActions.forEach(function(action, i) { %>
-          <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+          <button type="button" class="btn btn-action btn-action-<%= i %>" data-decision="<%= action %>" data-action-id="<%= actionIdsByLabel[action] || '' %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>', '<%= (actionIdsByLabel[action] || '').replace(/'/g, "\\'") %>')">
             <%= action %>
           </button>
         <% }); %>
@@ -215,6 +235,17 @@
     <% } %>
 
     <div class="decide-view" id="decideView">
+      <% if (targetState.summary && targetState.summary.total > 0) { %>
+      <section class="review-target-panel review-target-panel--readonly" data-review-target-panel>
+        <div class="review-target-panel__header">
+          <span>Items reviewed</span>
+          <span class="review-target-summary" data-review-target-summary>
+            <%= targetState.summary.decided %> of <%= targetState.summary.total %> decided
+          </span>
+        </div>
+        <div class="review-target-list" data-review-target-list></div>
+      </section>
+      <% } %>
       <div class="decided-sidebar">
         <div class="sidebar-label">Decision</div>
         <div class="sidebar-decision"><%= item.decision || item.status %></div>
@@ -278,7 +309,7 @@
     </div>
     <div class="decision-panel-buttons">
       <% sidebarActions.forEach(function(action, i) { %>
-        <button type="button" class="btn btn-action btn-action-<%= i %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>')">
+        <button type="button" class="btn btn-action btn-action-<%= i %>" data-decision="<%= action %>" data-action-id="<%= actionIdsByLabel[action] || '' %>" onclick="submitDecision('<%= action.replace(/'/g, "\\'") %>', '<%= (actionIdsByLabel[action] || '').replace(/'/g, "\\'") %>')">
           <%= action %>
         </button>
       <% }); %>
@@ -727,8 +758,6 @@
     activePopover = pop;
     const input = pop.querySelector('input[type="text"]');
     input.focus();
-    const isMobile = window.innerWidth < 900;
-    if (!isMobile && isAutoTranscribeEnabled()) startSpeechRecognition(input, pop);
     setupPopoverHandlers(pop, input, function(comment) {
       const anchor_ref = 'img:' + (img.getAttribute('src') || '');
       return submitAnnotation('', 'image', anchor_ref, comment);
@@ -739,38 +768,69 @@
   (function() {
     const container = document.querySelector('.rendered-content:not(.rendered-content--fullpage)');
     if (!container) return;
-    function handleTextSelection(e) {
+    container.dataset.safeTextAnnotations = 'canonical';
+    let selectionTimer = null;
+    let selectionFrame = null;
+
+    function selectionPoint(e) {
+      const touch = e.changedTouches && e.changedTouches[0];
+      return {
+        clientX: touch ? touch.clientX : e.clientX,
+        clientY: touch ? touch.clientY : e.clientY,
+        target: e.target,
+      };
+    }
+
+    function handleTextSelection(context) {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
       // Don't open if clicking on an existing highlight
-      if (e.target && e.target.closest && e.target.closest('.annotation-highlight')) return;
+      if (context.target && context.target.closest && context.target.closest('.annotation-highlight')) return;
       const quote = sel.toString().trim();
       const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
+      const rangeNode = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? range.commonAncestorContainer.parentElement
+        : range.commonAncestorContainer;
+      if (!rangeNode || !container.contains(rangeNode)) return;
+      const offset = getCharOffset(container, range);
+
+      // Release Aside/Chromium's native selection before focusing or mutating the DOM.
+      // The selected quote is preserved in the composer below.
+      sel.removeAllRanges();
       dismissAnnotationUI();
-      const pop = createPopover();
-      pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
-      pop.style.left = Math.max(8, rect.left + window.scrollX + (rect.width / 2) - 150) + 'px';
+      const pop = createPopover({ quote: quote });
+      const maxLeft = Math.max(8, document.documentElement.scrollWidth - 308);
+      const anchorX = Number.isFinite(context.clientX) ? context.clientX : 158;
+      const anchorY = Number.isFinite(context.clientY) ? context.clientY : 0;
+      pop.style.top = (anchorY + window.scrollY + 12) + 'px';
+      pop.style.left = Math.min(maxLeft, Math.max(8, anchorX + window.scrollX - 150)) + 'px';
       document.body.appendChild(pop);
       activePopover = pop;
       const input = pop.querySelector('input[type="text"]');
-      input.focus();
-      // Compute char offset
-      const offset = getCharOffset(container, range);
-      const isMobile = window.innerWidth < 900;
-      if (!isMobile && isAutoTranscribeEnabled()) startSpeechRecognition(input, pop);
       setupPopoverHandlers(pop, input, function(comment) {
-        sel.removeAllRanges();
         return submitAnnotation(quote, 'text', 'char:' + offset, comment);
       });
     }
-    container.addEventListener('mouseup', handleTextSelection);
+
+    function scheduleTextSelection(e, delay) {
+      const context = selectionPoint(e);
+      clearTimeout(selectionTimer);
+      if (selectionFrame !== null) cancelAnimationFrame(selectionFrame);
+      selectionTimer = setTimeout(function() {
+        selectionFrame = requestAnimationFrame(function() {
+          selectionFrame = null;
+          handleTextSelection(context);
+        });
+      }, delay || 0);
+    }
+
+    container.addEventListener('mouseup', function(e) {
+      scheduleTextSelection(e, 0);
+    });
     // Mobile: touchend after selection
-    let touchSelTimer = null;
     container.addEventListener('touchend', function(e) {
-      clearTimeout(touchSelTimer);
       // Delay slightly to let mobile selection settle
-      touchSelTimer = setTimeout(function() { handleTextSelection(e); }, 300);
+      scheduleTextSelection(e, 300);
     });
 
     // Click on existing highlight → detail
@@ -819,45 +879,40 @@
     });
   })();
 
-  function isAutoTranscribeEnabled() {
-    return localStorage.getItem('turf-auto-transcribe') !== 'off';
-  }
-  function setAutoTranscribe(on) {
-    localStorage.setItem('turf-auto-transcribe', on ? 'on' : 'off');
-  }
-
-  function createPopover() {
+  function createPopover(options) {
     const pop = document.createElement('div');
     pop.className = 'annotation-popover';
-    const micOn = isAutoTranscribeEnabled();
+    const quote = options && options.quote ? String(options.quote) : '';
+    const quotePreview = quote
+      ? '<div class="annotation-popover-quote"><span>Selected text</span><q>' + escapeHtml(quote) + '</q></div>'
+      : '';
     pop.innerHTML =
+      quotePreview +
       '<div class="annotation-popover-row">' +
         '<span class="mic-pulse-dot" style="display:none;"></span>' +
-        '<button class="annotation-mic-toggle" title="' + (micOn ? 'Disable' : 'Enable') + ' auto-transcribe">' +
-          (micOn ? '🎙️' : '🔇') +
+        '<button class="annotation-mic-toggle" type="button" title="Dictate note" aria-label="Dictate note">' +
+          '🎙️' +
         '</button>' +
-        '<input type="text" placeholder="' + (micOn ? 'Say or type your note\u2026' : 'Type your note\u2026') + '" autocomplete="off">' +
+        '<input type="text" placeholder="Type your note\u2026" autocomplete="off">' +
         '<button class="annotation-popover-submit">Save</button>' +
         '<button class="annotation-popover-cancel">\u00d7</button>' +
       '</div>';
-    // Wire up mic toggle
+    // Dictation is explicit. Selection alone never starts a browser speech service.
     const micBtn = pop.querySelector('.annotation-mic-toggle');
     micBtn.onclick = function(e) {
       e.stopPropagation();
-      const nowOn = !isAutoTranscribeEnabled();
-      setAutoTranscribe(nowOn);
-      micBtn.textContent = nowOn ? '🎙️' : '🔇';
-      micBtn.title = (nowOn ? 'Disable' : 'Enable') + ' auto-transcribe';
-      pop.querySelector('input[type="text"]').placeholder = nowOn ? 'Say or type your note\u2026' : 'Type your note\u2026';
-      if (!nowOn && speechRec) {
+      if (speechRec) {
         try { speechRec.abort(); } catch(ex){}
         speechRec = null;
         const dot = pop.querySelector('.mic-pulse-dot');
         if (dot) dot.style.display = 'none';
-      } else if (nowOn && !speechRec) {
-        const input = pop.querySelector('input[type="text"]');
-        startSpeechRecognition(input, pop);
+        micBtn.title = 'Dictate note';
+        micBtn.setAttribute('aria-label', 'Dictate note');
+        return;
       }
+      const input = pop.querySelector('input[type="text"]');
+      input.focus();
+      startSpeechRecognition(input, pop);
     };
     return pop;
   }
@@ -901,7 +956,12 @@
     speechRec.continuous = false;
     speechRec.interimResults = true;
     const dot = pop.querySelector('.mic-pulse-dot');
+    const micBtn = pop.querySelector('.annotation-mic-toggle');
     if (dot) dot.style.display = 'inline-block';
+    if (micBtn) {
+      micBtn.title = 'Stop dictation';
+      micBtn.setAttribute('aria-label', 'Stop dictation');
+    }
     speechRec.onresult = function(ev) {
       let transcript = '';
       for (let i = 0; i < ev.results.length; i++) {
@@ -911,10 +971,18 @@
     };
     speechRec.onend = function() {
       if (dot) dot.style.display = 'none';
+      if (micBtn) {
+        micBtn.title = 'Dictate note';
+        micBtn.setAttribute('aria-label', 'Dictate note');
+      }
       speechRec = null;
     };
     speechRec.onerror = function() {
       if (dot) dot.style.display = 'none';
+      if (micBtn) {
+        micBtn.title = 'Dictate note';
+        micBtn.setAttribute('aria-label', 'Dictate note');
+      }
       speechRec = null;
     };
     try { speechRec.start(); } catch(e) { speechRec = null; }
@@ -957,7 +1025,7 @@
   // Load annotations on page ready
   loadAnnotations();
 
-  async function submitDecision(decision) {
+  async function submitDecision(decision, actionId) {
     const feedback = (document.getElementById('feedbackInput') || document.getElementById('sidebarFeedback') || {}).value || '';
     const slug = '<%= item.slug %>';
     document.querySelectorAll('.btn-action').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
@@ -981,7 +1049,7 @@
       const res = await fetch('/api/items/' + slug + '/decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, feedback: fullFeedback || undefined })
+        body: JSON.stringify({ decision, actionId: actionId || undefined, feedback: fullFeedback || undefined })
       });
       if (res.ok) {
         window.location.reload();
@@ -990,6 +1058,9 @@
         if (window.showToast) window.showToast('Error: ' + (data.error || 'Unknown'), { error: true });
         else alert('Error: ' + (data.error || 'Unknown'));
         document.querySelectorAll('.btn-action').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        if (data.reviewTargets && window.TurfReviewTargets && window.TurfReviewTargets.showIncompleteWarning) {
+          window.TurfReviewTargets.showIncompleteWarning(data.reviewTargets);
+        }
       }
     } catch (err) {
       if (window.showToast) window.showToast('Network error', { error: true });
@@ -1028,6 +1099,7 @@
     }
   }
 </script>
+<script src="/review-targets.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>"></script>
 
 <!-- DEBUG: template version marker -->
 <div id="tmpl-debug" style="display:none;" data-version="chat-http-v1" data-has-chat="<%= reviewChatEnabled %>"></div>
