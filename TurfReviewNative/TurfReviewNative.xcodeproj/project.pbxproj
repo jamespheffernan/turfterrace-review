@@ -7,31 +7,82 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0403012B29F7A6B2BB6E3E9A /* TurfStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B07006F2BD1B5BA471BCFA0 /* TurfStyle.swift */; };
+		05FDEE4A5A90E02257D246F5 /* DecisionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */; };
 		0CE39F568E2E163D00A732C2 /* ReviewStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */; };
+		13A964CB2306A10704DC909B /* TurfStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B07006F2BD1B5BA471BCFA0 /* TurfStyle.swift */; };
+		1437B13A0BA45F716A16A1DA /* ReviewTargetsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */; };
 		17AB30CA261DCEC0B47467CD /* StatusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A10A25073565453AF94305 /* StatusPanel.swift */; };
+		1C293E43CCCDA9A60E304091 /* ReviewDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972D105FFC291009AE4113DC /* ReviewDeepLink.swift */; };
 		1FB2ACA60BF45AA4402B08D5 /* AudioPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785112253584E551398818FB /* AudioPlayerBar.swift */; };
+		23F476C758448B6B4526603D /* TurfThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B20A28AD28B19512890D7A /* TurfThemeTests.swift */; };
 		295A574A6E81920D75EC5369 /* TurfModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA41A6690E33423E8FBF58 /* TurfModels.swift */; };
 		2E6602AB329040AC89B172BA /* TurfReviewNativeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */; };
 		2F9B25989B6AD1797B101F56 /* TurfReviewClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663CC39BA44A38E507018F43 /* TurfReviewClient.swift */; };
+		32C188CA2D1A9DDD342085C6 /* NativeDesignSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B9107D50E68D70975C2FA6 /* NativeDesignSnapshotTests.swift */; };
 		35AFA1B1A5A1D2364252CCAB /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9971554AF514AD16A4CB45FB /* RootView.swift */; };
 		3636210BBA55F40EC381793B /* ReviewTargetsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */; };
+		383135E570635948097D03FD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061B2447596A08EA73EEF46A /* SettingsView.swift */; };
+		3841A3DE8269A13951B5C178 /* PlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EC114075257969BEDC137BA /* PlatformSupport.swift */; };
+		3C009D75F05A35A454AC258F /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A501C01C0482C899B83F11CB /* QueueView.swift */; };
 		3CA56ED62FE5FAE596CC1CFF /* ReviewDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7956F02998206115AC6695FD /* ReviewDetailView.swift */; };
+		428136B967AE2C07E2F42343 /* ReviewDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972D105FFC291009AE4113DC /* ReviewDeepLink.swift */; };
 		435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* DecisionDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */; };
+		4B554056ADE5F4FD558F3590 /* PlatformSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EC114075257969BEDC137BA /* PlatformSupport.swift */; };
 		533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */; };
+		568735F73ED8E74AD07E608C /* TurfReviewClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663CC39BA44A38E507018F43 /* TurfReviewClient.swift */; };
 		57D44A1E5AA9D90DCC15BB5E /* TurfReviewClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */; };
 		59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */; };
+		5A779950BB304958D19BFBB4 /* AudioPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 785112253584E551398818FB /* AudioPlayerBar.swift */; };
 		6037CA6FD5FCDF4B0655D187 /* AnnotationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */; };
+		643C229D7D47951E44F39178 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9FE625C09887C877DD4BDE66 /* Assets.xcassets */; };
+		64F1D918C58027572580F979 /* TurfTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8D8900419225748FCD4F2F /* TurfTheme.swift */; };
 		68611A8D2833F2ED014796D4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061B2447596A08EA73EEF46A /* SettingsView.swift */; };
+		6A54DE6BE65ACFDA4EDD998A /* APIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A0227EE96C08902F16FF4B /* APIConfiguration.swift */; };
+		6CFF0CD01C748C851D3EF1C4 /* ReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FED2F22FA4A221288F17138 /* ReviewStore.swift */; };
+		7169D32DDD7D5DA261CA2EF9 /* NativeDesignSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B9107D50E68D70975C2FA6 /* NativeDesignSnapshotTests.swift */; };
 		741BCAF9DDA8AB81A456C1AF /* ReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FED2F22FA4A221288F17138 /* ReviewStore.swift */; };
+		78823C73E91B23E65619E18C /* ReviewDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7956F02998206115AC6695FD /* ReviewDetailView.swift */; };
+		7C8E7D5E1170871E3EB78EFB /* ReviewDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3110A9AEAED74FE9566F3510 /* ReviewDeepLinkTests.swift */; };
+		7DE215246B77AEE7A011D9A8 /* TurfReviewClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */; };
+		8206F574499238EE7A570F29 /* PerformanceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28BB699F5A699274C565B94 /* PerformanceRegressionTests.swift */; };
+		8AA4CD9AD344538A5C33F519 /* TurfThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B20A28AD28B19512890D7A /* TurfThemeTests.swift */; };
+		8C293CA45A3792F34F246974 /* ReviewStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */; };
+		8D367CCEC18CAB5AED761588 /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B39F80BA82ECE12E21856D /* DemoData.swift */; };
+		90C5E9E29A81B2879D380D9D /* ReviewOfflineLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A06DBD033D10B980FE05626C /* ReviewOfflineLibrary.swift */; };
+		90CE8E381BB78B13F696BCE3 /* ChatPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */; };
+		9256788429862C82E28DC9CE /* StatusPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A10A25073565453AF94305 /* StatusPanel.swift */; };
+		945F7AE3B937C1173F0136BB /* AudioPlaybackStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA780BB2A2565A9B299513E8 /* AudioPlaybackStateTests.swift */; };
+		995E4C884CDCD7B65A6C5C11 /* DecisionDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0405D88BBBC7B2CF18CF60D /* DecisionDock.swift */; };
+		A3B37E1D700BAA4FFC5E8A89 /* TurfReviewNativeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */; };
+		A7CDCDBCEC9F674BD9154881 /* TurfModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA41A6690E33423E8FBF58 /* TurfModels.swift */; };
+		A929FE3CC99898005DED980F /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9971554AF514AD16A4CB45FB /* RootView.swift */; };
+		AF4BF94696F85D214838FFB3 /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE8C5C659E7401E11763E07B /* PushNotificationService.swift */; };
+		B0A3171BF537DE92D4826AD4 /* NativeScreenSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60EA67CAF2B30CEFC95AC0F2 /* NativeScreenSnapshotTests.swift */; };
+		B38817FE47790F4061BCF1F7 /* AnnotationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */; };
+		BA3AA23486D60DA6A7F1E5BF /* ReviewOfflineLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A06DBD033D10B980FE05626C /* ReviewOfflineLibrary.swift */; };
 		BC7D8AE9C6367952B7D8EC7E /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A501C01C0482C899B83F11CB /* QueueView.swift */; };
 		C02DEED3D01FD8886E708AB7 /* APIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A0227EE96C08902F16FF4B /* APIConfiguration.swift */; };
+		C23A9B96A8EC97BCB9D58070 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9FE625C09887C877DD4BDE66 /* Assets.xcassets */; };
+		D4ABA05BADDF6D44735B055A /* HTMLDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */; };
+		DF8F995F8E3898E8BD0B477A /* PushNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE8C5C659E7401E11763E07B /* PushNotificationService.swift */; };
+		E0457CCB315321597C3B4268 /* ReviewDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3110A9AEAED74FE9566F3510 /* ReviewDeepLinkTests.swift */; };
+		EA8A40EE88B73411ACB8DDD9 /* PerformanceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28BB699F5A699274C565B94 /* PerformanceRegressionTests.swift */; };
 		EBAE60BA451353598940BACE /* AudioPlaybackStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA780BB2A2565A9B299513E8 /* AudioPlaybackStateTests.swift */; };
+		ED933E23C5B0E5D1B0D290EF /* NativeScreenSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60EA67CAF2B30CEFC95AC0F2 /* NativeScreenSnapshotTests.swift */; };
 		F9A83C2C607D7FC3FE75F3BF /* DemoData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B39F80BA82ECE12E21856D /* DemoData.swift */; };
 		FA97582E4CF0349C786C435A /* TurfTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8D8900419225748FCD4F2F /* TurfTheme.swift */; };
+		FEDBBA95AB599B4D933D9B3F /* DecisionDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0405D88BBBC7B2CF18CF60D /* DecisionDock.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		65EB8045B301E02B0BBC2F3D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C9B043B237C5D660A6B73A4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8ABDDB4BE4290A12912C4E1;
+			remoteInfo = TurfReviewMac;
+		};
 		88BBBAE8EBBC1EC0F888619B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8C9B043B237C5D660A6B73A4 /* Project object */;
@@ -43,29 +94,42 @@
 
 /* Begin PBXFileReference section */
 		061B2447596A08EA73EEF46A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		0B07006F2BD1B5BA471BCFA0 /* TurfStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfStyle.swift; sourceTree = "<group>"; };
 		17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewClientTests.swift; sourceTree = "<group>"; };
+		1EC114075257969BEDC137BA /* PlatformSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformSupport.swift; sourceTree = "<group>"; };
 		1FED2F22FA4A221288F17138 /* ReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStore.swift; sourceTree = "<group>"; };
+		29EFB6CA1166437165F8F2D3 /* TurfReviewMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TurfReviewMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3110A9AEAED74FE9566F3510 /* ReviewDeepLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewDeepLinkTests.swift; sourceTree = "<group>"; };
 		3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLDocumentView.swift; sourceTree = "<group>"; };
-		464BCAF24E3DDC38180A16D9 /* Turf Review.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Turf Review.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		48B20A28AD28B19512890D7A /* TurfThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfThemeTests.swift; sourceTree = "<group>"; };
 		53B39F80BA82ECE12E21856D /* DemoData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoData.swift; sourceTree = "<group>"; };
+		5D7AA4F457DBCBBBECD7986D /* Turf Review.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Turf Review.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E12BC0F06DF3200190824FE /* TurfReviewMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TurfReviewMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5F8D8900419225748FCD4F2F /* TurfTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfTheme.swift; sourceTree = "<group>"; };
+		60EA67CAF2B30CEFC95AC0F2 /* NativeScreenSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeScreenSnapshotTests.swift; sourceTree = "<group>"; };
 		63A10A25073565453AF94305 /* StatusPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusPanel.swift; sourceTree = "<group>"; };
 		663CC39BA44A38E507018F43 /* TurfReviewClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewClient.swift; sourceTree = "<group>"; };
 		785112253584E551398818FB /* AudioPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerBar.swift; sourceTree = "<group>"; };
 		7956F02998206115AC6695FD /* ReviewDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewDetailView.swift; sourceTree = "<group>"; };
 		79A0227EE96C08902F16FF4B /* APIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIConfiguration.swift; sourceTree = "<group>"; };
 		7D0BCBCF959C1E5A925DEFBC /* TurfReviewNativeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfReviewNativeApp.swift; sourceTree = "<group>"; };
+		89B9107D50E68D70975C2FA6 /* NativeDesignSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesignSnapshotTests.swift; sourceTree = "<group>"; };
+		972D105FFC291009AE4113DC /* ReviewDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewDeepLink.swift; sourceTree = "<group>"; };
 		9971554AF514AD16A4CB45FB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		9FE625C09887C877DD4BDE66 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A06DBD033D10B980FE05626C /* ReviewOfflineLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewOfflineLibrary.swift; sourceTree = "<group>"; };
 		A501C01C0482C899B83F11CB /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewTargetsPanel.swift; sourceTree = "<group>"; };
 		BA780BB2A2565A9B299513E8 /* AudioPlaybackStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackStateTests.swift; sourceTree = "<group>"; };
 		BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationPanel.swift; sourceTree = "<group>"; };
 		BC02A894965559DC30FB28B4 /* TurfReviewNativeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TurfReviewNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStoreTests.swift; sourceTree = "<group>"; };
+		D0405D88BBBC7B2CF18CF60D /* DecisionDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionDock.swift; sourceTree = "<group>"; };
 		D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPanel.swift; sourceTree = "<group>"; };
 		E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionPanel.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecisionDock.swift; sourceTree = "<group>"; };
+		F28BB699F5A699274C565B94 /* PerformanceRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceRegressionTests.swift; sourceTree = "<group>"; };
 		FCFA41A6690E33423E8FBF58 /* TurfModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurfModels.swift; sourceTree = "<group>"; };
+		FE8C5C659E7401E11763E07B /* PushNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -73,8 +137,13 @@
 			isa = PBXGroup;
 			children = (
 				BA780BB2A2565A9B299513E8 /* AudioPlaybackStateTests.swift */,
+				89B9107D50E68D70975C2FA6 /* NativeDesignSnapshotTests.swift */,
+				60EA67CAF2B30CEFC95AC0F2 /* NativeScreenSnapshotTests.swift */,
+				F28BB699F5A699274C565B94 /* PerformanceRegressionTests.swift */,
+				3110A9AEAED74FE9566F3510 /* ReviewDeepLinkTests.swift */,
 				BC580DEA2D69CE85A3F8426F /* ReviewStoreTests.swift */,
 				17FC4F162F00F74B458A7FC7 /* TurfReviewClientTests.swift */,
+				48B20A28AD28B19512890D7A /* TurfThemeTests.swift */,
 			);
 			path = TurfReviewNativeTests;
 			sourceTree = "<group>";
@@ -92,8 +161,8 @@
 			children = (
 				BBFD6A97C8BA6AADEF9A0FB4 /* AnnotationPanel.swift */,
 				D4FC6D6BD91E228584BC7113 /* ChatPanel.swift */,
+				D0405D88BBBC7B2CF18CF60D /* DecisionDock.swift */,
 				E4C7A3C48833580D054D6F81 /* DecisionPanel.swift */,
-				B1C2D3E4F5061728394A5B6D /* DecisionDock.swift */,
 				A501C01C0482C899B83F11CB /* QueueView.swift */,
 				7956F02998206115AC6695FD /* ReviewDetailView.swift */,
 				AEE952C5DBAB37764E500F06 /* ReviewTargetsPanel.swift */,
@@ -109,6 +178,8 @@
 			children = (
 				79A0227EE96C08902F16FF4B /* APIConfiguration.swift */,
 				53B39F80BA82ECE12E21856D /* DemoData.swift */,
+				FE8C5C659E7401E11763E07B /* PushNotificationService.swift */,
+				A06DBD033D10B980FE05626C /* ReviewOfflineLibrary.swift */,
 				663CC39BA44A38E507018F43 /* TurfReviewClient.swift */,
 			);
 			path = Services;
@@ -119,6 +190,9 @@
 			children = (
 				785112253584E551398818FB /* AudioPlayerBar.swift */,
 				3BD5172A32473A00A161CA5B /* HTMLDocumentView.swift */,
+				1EC114075257969BEDC137BA /* PlatformSupport.swift */,
+				972D105FFC291009AE4113DC /* ReviewDeepLink.swift */,
+				0B07006F2BD1B5BA471BCFA0 /* TurfStyle.swift */,
 				5F8D8900419225748FCD4F2F /* TurfTheme.swift */,
 			);
 			path = Support;
@@ -137,6 +211,7 @@
 			children = (
 				BF958CEC287A8CFE2D92B81C /* App */,
 				CBABD7404E92C347E6B9FE2B /* Models */,
+				D8B373661689D39B2FF501F9 /* Resources */,
 				5936135A86974BE63E43715B /* Services */,
 				0CC0A635886D8EE4A49CBFE6 /* State */,
 				AB919E6DEA40902F3D9E4F44 /* Support */,
@@ -148,7 +223,9 @@
 		C9BBC158BED4E73E883D8655 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				464BCAF24E3DDC38180A16D9 /* Turf Review.app */,
+				5D7AA4F457DBCBBBECD7986D /* Turf Review.app */,
+				5E12BC0F06DF3200190824FE /* TurfReviewMac.app */,
+				29EFB6CA1166437165F8F2D3 /* TurfReviewMacTests.xctest */,
 				BC02A894965559DC30FB28B4 /* TurfReviewNativeTests.xctest */,
 			);
 			name = Products;
@@ -171,6 +248,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		D8B373661689D39B2FF501F9 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				9FE625C09887C877DD4BDE66 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -179,6 +264,7 @@
 			buildConfigurationList = C2263EE8130B76C7C93BDED5 /* Build configuration list for PBXNativeTarget "TurfReviewNative" */;
 			buildPhases = (
 				55AD4EA71DA0E39329C9A8F5 /* Sources */,
+				85030BFFB80DF8409C61D11D /* Resources */,
 			);
 			buildRules = (
 			);
@@ -188,7 +274,43 @@
 			packageProductDependencies = (
 			);
 			productName = TurfReviewNative;
-			productReference = 464BCAF24E3DDC38180A16D9 /* Turf Review.app */;
+			productReference = 5D7AA4F457DBCBBBECD7986D /* Turf Review.app */;
+			productType = "com.apple.product-type.application";
+		};
+		58CDAE86391BF3F3262B9CA0 /* TurfReviewMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4C325271397077A36E5CB81D /* Build configuration list for PBXNativeTarget "TurfReviewMacTests" */;
+			buildPhases = (
+				F82877A98C4D0660D9830DB2 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				01B74523882B6255AE9D87FB /* PBXTargetDependency */,
+			);
+			name = TurfReviewMacTests;
+			packageProductDependencies = (
+			);
+			productName = TurfReviewMacTests;
+			productReference = 29EFB6CA1166437165F8F2D3 /* TurfReviewMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		D8ABDDB4BE4290A12912C4E1 /* TurfReviewMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8B34DEE36453C212D113511A /* Build configuration list for PBXNativeTarget "TurfReviewMac" */;
+			buildPhases = (
+				6C5AEDA3B99AA258FD042BDF /* Sources */,
+				80D2CD2081F4CDFC01C5AA9D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TurfReviewMac;
+			packageProductDependencies = (
+			);
+			productName = TurfReviewMac;
+			productReference = 5E12BC0F06DF3200190824FE /* TurfReviewMac.app */;
 			productType = "com.apple.product-type.application";
 		};
 		FADAB8435769FB045E73837C /* TurfReviewNativeTests */ = {
@@ -219,10 +341,19 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					09649FD1004AC7F21A5E20B1 = {
+						DevelopmentTeam = 7W38KL8969;
+						ProvisioningStyle = Automatic;
+					};
+					58CDAE86391BF3F3262B9CA0 = {
+						DevelopmentTeam = 7W38KL8969;
+						ProvisioningStyle = Automatic;
+					};
+					D8ABDDB4BE4290A12912C4E1 = {
+						DevelopmentTeam = 7W38KL8969;
 						ProvisioningStyle = Automatic;
 					};
 					FADAB8435769FB045E73837C = {
-						DevelopmentTeam = 3MVGA7QVHM;
+						DevelopmentTeam = 7W38KL8969;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -241,11 +372,32 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				D8ABDDB4BE4290A12912C4E1 /* TurfReviewMac */,
+				58CDAE86391BF3F3262B9CA0 /* TurfReviewMacTests */,
 				09649FD1004AC7F21A5E20B1 /* TurfReviewNative */,
 				FADAB8435769FB045E73837C /* TurfReviewNativeTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		80D2CD2081F4CDFC01C5AA9D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C23A9B96A8EC97BCB9D58070 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		85030BFFB80DF8409C61D11D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				643C229D7D47951E44F39178 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		55AD4EA71DA0E39329C9A8F5 /* Sources */ = {
@@ -256,12 +408,16 @@
 				6037CA6FD5FCDF4B0655D187 /* AnnotationPanel.swift in Sources */,
 				1FB2ACA60BF45AA4402B08D5 /* AudioPlayerBar.swift in Sources */,
 				59EB51A22DB42BA6D31D398C /* ChatPanel.swift in Sources */,
+				995E4C884CDCD7B65A6C5C11 /* DecisionDock.swift in Sources */,
 				435EDB69A6C03296649879C5 /* DecisionPanel.swift in Sources */,
-				A1B2C3D4E5F60718293A4B5C /* DecisionDock.swift in Sources */,
 				F9A83C2C607D7FC3FE75F3BF /* DemoData.swift in Sources */,
 				533ED5803BBFE600DAE78DCF /* HTMLDocumentView.swift in Sources */,
+				4B554056ADE5F4FD558F3590 /* PlatformSupport.swift in Sources */,
+				DF8F995F8E3898E8BD0B477A /* PushNotificationService.swift in Sources */,
 				BC7D8AE9C6367952B7D8EC7E /* QueueView.swift in Sources */,
+				428136B967AE2C07E2F42343 /* ReviewDeepLink.swift in Sources */,
 				3CA56ED62FE5FAE596CC1CFF /* ReviewDetailView.swift in Sources */,
+				BA3AA23486D60DA6A7F1E5BF /* ReviewOfflineLibrary.swift in Sources */,
 				741BCAF9DDA8AB81A456C1AF /* ReviewStore.swift in Sources */,
 				3636210BBA55F40EC381793B /* ReviewTargetsPanel.swift in Sources */,
 				35AFA1B1A5A1D2364252CCAB /* RootView.swift in Sources */,
@@ -270,7 +426,39 @@
 				295A574A6E81920D75EC5369 /* TurfModels.swift in Sources */,
 				2F9B25989B6AD1797B101F56 /* TurfReviewClient.swift in Sources */,
 				2E6602AB329040AC89B172BA /* TurfReviewNativeApp.swift in Sources */,
+				13A964CB2306A10704DC909B /* TurfStyle.swift in Sources */,
 				FA97582E4CF0349C786C435A /* TurfTheme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6C5AEDA3B99AA258FD042BDF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A54DE6BE65ACFDA4EDD998A /* APIConfiguration.swift in Sources */,
+				B38817FE47790F4061BCF1F7 /* AnnotationPanel.swift in Sources */,
+				5A779950BB304958D19BFBB4 /* AudioPlayerBar.swift in Sources */,
+				90CE8E381BB78B13F696BCE3 /* ChatPanel.swift in Sources */,
+				FEDBBA95AB599B4D933D9B3F /* DecisionDock.swift in Sources */,
+				05FDEE4A5A90E02257D246F5 /* DecisionPanel.swift in Sources */,
+				8D367CCEC18CAB5AED761588 /* DemoData.swift in Sources */,
+				D4ABA05BADDF6D44735B055A /* HTMLDocumentView.swift in Sources */,
+				3841A3DE8269A13951B5C178 /* PlatformSupport.swift in Sources */,
+				AF4BF94696F85D214838FFB3 /* PushNotificationService.swift in Sources */,
+				3C009D75F05A35A454AC258F /* QueueView.swift in Sources */,
+				1C293E43CCCDA9A60E304091 /* ReviewDeepLink.swift in Sources */,
+				78823C73E91B23E65619E18C /* ReviewDetailView.swift in Sources */,
+				90C5E9E29A81B2879D380D9D /* ReviewOfflineLibrary.swift in Sources */,
+				6CFF0CD01C748C851D3EF1C4 /* ReviewStore.swift in Sources */,
+				1437B13A0BA45F716A16A1DA /* ReviewTargetsPanel.swift in Sources */,
+				A929FE3CC99898005DED980F /* RootView.swift in Sources */,
+				383135E570635948097D03FD /* SettingsView.swift in Sources */,
+				9256788429862C82E28DC9CE /* StatusPanel.swift in Sources */,
+				A7CDCDBCEC9F674BD9154881 /* TurfModels.swift in Sources */,
+				568735F73ED8E74AD07E608C /* TurfReviewClient.swift in Sources */,
+				A3B37E1D700BAA4FFC5E8A89 /* TurfReviewNativeApp.swift in Sources */,
+				0403012B29F7A6B2BB6E3E9A /* TurfStyle.swift in Sources */,
+				64F1D918C58027572580F979 /* TurfTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,14 +467,39 @@
 			buildActionMask = 2147483647;
 			files = (
 				EBAE60BA451353598940BACE /* AudioPlaybackStateTests.swift in Sources */,
+				7169D32DDD7D5DA261CA2EF9 /* NativeDesignSnapshotTests.swift in Sources */,
+				B0A3171BF537DE92D4826AD4 /* NativeScreenSnapshotTests.swift in Sources */,
+				EA8A40EE88B73411ACB8DDD9 /* PerformanceRegressionTests.swift in Sources */,
+				E0457CCB315321597C3B4268 /* ReviewDeepLinkTests.swift in Sources */,
 				0CE39F568E2E163D00A732C2 /* ReviewStoreTests.swift in Sources */,
 				57D44A1E5AA9D90DCC15BB5E /* TurfReviewClientTests.swift in Sources */,
+				8AA4CD9AD344538A5C33F519 /* TurfThemeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F82877A98C4D0660D9830DB2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				945F7AE3B937C1173F0136BB /* AudioPlaybackStateTests.swift in Sources */,
+				32C188CA2D1A9DDD342085C6 /* NativeDesignSnapshotTests.swift in Sources */,
+				ED933E23C5B0E5D1B0D290EF /* NativeScreenSnapshotTests.swift in Sources */,
+				8206F574499238EE7A570F29 /* PerformanceRegressionTests.swift in Sources */,
+				7C8E7D5E1170871E3EB78EFB /* ReviewDeepLinkTests.swift in Sources */,
+				8C293CA45A3792F34F246974 /* ReviewStoreTests.swift in Sources */,
+				7DE215246B77AEE7A011D9A8 /* TurfReviewClientTests.swift in Sources */,
+				23F476C758448B6B4526603D /* TurfThemeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		01B74523882B6255AE9D87FB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D8ABDDB4BE4290A12912C4E1 /* TurfReviewMac */;
+			targetProxy = 65EB8045B301E02B0BBC2F3D /* PBXContainerItemProxy */;
+		};
 		FD1455D917F601DFE1E61BAE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 09649FD1004AC7F21A5E20B1 /* TurfReviewNative */;
@@ -313,12 +526,51 @@
 			};
 			name = Debug;
 		};
+		0E89D0187D8E93683A4B7A36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconMac;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TurfReviewNative/Resources/TurfReviewMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "TurfReviewNative/Resources/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewmac;
+				PRODUCT_MODULE_NAME = TurfReviewMac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		55364B89FC255BE4F50B2E04 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewmac.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TurfReviewMac.app/Contents/MacOS/TurfReviewMac";
+			};
+			name = Debug;
+		};
 		77D95036726842F407E81BDE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TurfReviewNative/Resources/TurfReview.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = DVGNA22Q9C;
 				INFOPLIST_FILE = TurfReviewNative/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -339,6 +591,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				APS_ENVIRONMENT = production;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -370,9 +623,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 202609231800;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = DVGNA22Q9C;
+				DEVELOPMENT_TEAM = 7W38KL8969;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -384,14 +637,15 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+				TURF_DEFAULT_SERVER_URL = "https://review.turfterrace.com";
 			};
 			name = Release;
 		};
@@ -399,6 +653,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				APS_ENVIRONMENT = development;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -430,9 +685,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 202609231800;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = DVGNA22Q9C;
+				DEVELOPMENT_TEAM = 7W38KL8969;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -450,15 +705,16 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
+				TURF_DEFAULT_SERVER_URL = "https://review.turfterrace.com";
 			};
 			name = Debug;
 		};
@@ -480,12 +736,51 @@
 			};
 			name = Release;
 		};
+		CC6B2054A28886777F7F0A0E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewmac.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TurfReviewMac.app/Contents/MacOS/TurfReviewMac";
+			};
+			name = Release;
+		};
+		EF3D94B4813B960086A9DFAF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconMac;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TurfReviewNative/Resources/TurfReviewMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "TurfReviewNative/Resources/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamesheffernan.turfreviewmac;
+				PRODUCT_MODULE_NAME = TurfReviewMac;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
 		FA8317269E24BF98E4D89FA2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TurfReviewNative/Resources/TurfReview.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = DVGNA22Q9C;
 				INFOPLIST_FILE = TurfReviewNative/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -505,6 +800,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		4C325271397077A36E5CB81D /* Build configuration list for PBXNativeTarget "TurfReviewMacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				55364B89FC255BE4F50B2E04 /* Debug */,
+				CC6B2054A28886777F7F0A0E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B34DEE36453C212D113511A /* Build configuration list for PBXNativeTarget "TurfReviewMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EF3D94B4813B960086A9DFAF /* Debug */,
+				0E89D0187D8E93683A4B7A36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		8C015AE899D6B8BFA7322E96 /* Build configuration list for PBXNativeTarget "TurfReviewNativeTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

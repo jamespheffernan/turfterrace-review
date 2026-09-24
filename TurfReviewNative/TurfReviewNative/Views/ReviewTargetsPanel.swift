@@ -1,16 +1,17 @@
 import SwiftUI
 
 struct ReviewTargetsPanel: View {
-  @ObservedObject var store: ReviewStore
+  let store: ReviewStore
   let item: ReviewItem
 
   @State private var feedbackDrafts: [String: String] = [:]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: TurfSpacing.sectionGap) {
       SectionHeader(
         title: "Review items",
-        subtitle: store.reviewTargetSummary.total == 0 ? nil : summaryText
+        subtitle: store.reviewTargetSummary.total == 0 ? nil : summaryText,
+        subtitleIsCount: true
       )
 
       if store.reviewTargets.isEmpty, let loadError = store.reviewTargetLoadError {
@@ -24,11 +25,11 @@ struct ReviewTargetsPanel: View {
         ContentUnavailableView(
           "No review items",
           systemImage: "checklist",
-          description: Text("No extracted yes/no items.")
+          description: Text("This review has no item-level decisions.")
         )
         .frame(maxWidth: .infinity)
       } else {
-        VStack(spacing: 10) {
+        VStack(spacing: TurfSpacing.cardGap) {
           ForEach(store.reviewTargets) { target in
             ReviewTargetRow(
               target: target,
@@ -48,6 +49,12 @@ struct ReviewTargetsPanel: View {
                     verdict: "rejected",
                     feedback: feedbackDrafts[target.key]
                   )
+                }
+              },
+              onChoice: { value in
+                Task {
+                  feedbackDrafts[target.key] = ""
+                  await store.updateReviewTarget(target, for: item.slug, verdict: "choice:\(value)", feedback: nil)
                 }
               },
               onClear: {
@@ -82,7 +89,7 @@ struct ReviewTargetsPanel: View {
   }
 
   private var summaryText: String {
-    "\(store.reviewTargetSummary.approved) yes, \(store.reviewTargetSummary.rejected) no, \(store.reviewTargetSummary.undecided) open"
+    "\(store.reviewTargetSummary.decided) decided, \(store.reviewTargetSummary.undecided) open"
   }
 
   private func feedbackBinding(for target: ReviewTarget) -> Binding<String> {
@@ -111,55 +118,93 @@ private struct ReviewTargetRow: View {
   let isUpdating: Bool
   let onApprove: () -> Void
   let onReject: () -> Void
+  let onChoice: (String) -> Void
   let onClear: () -> Void
   let onSaveFeedback: () -> Void
 
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @FocusState private var isFeedbackFocused: Bool
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .top, spacing: 10) {
+    VStack(alignment: .leading, spacing: TurfSpacing.m) {
+      HStack(alignment: .firstTextBaseline, spacing: TurfSpacing.s) {
         Image(systemName: stateIcon)
+          .font(TurfType.rowTitle)
           .foregroundStyle(stateColor)
-          .frame(width: 20)
-        VStack(alignment: .leading, spacing: 5) {
+          .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+          .frame(width: TurfSpacing.xl)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: TurfSpacing.stackTight) {
           Text(target.label)
-            .font(.subheadline.weight(.semibold))
+            .font(TurfType.rowTitle)
             .foregroundStyle(TurfTheme.ink)
             .fixedSize(horizontal: false, vertical: true)
-          BadgeText(stateTitle, color: stateColor)
+          Text(stateTitle)
+            .font(TurfType.meta)
+            .foregroundStyle(TurfTheme.muted)
+            .contentTransition(.opacity)
         }
         Spacer(minLength: 0)
       }
+      .accessibilityElement(children: .combine)
+      .turfAnimation(TurfMotion.quick, value: target.verdict)
 
-      HStack(spacing: 8) {
-        Button(action: onApprove) {
-          Label("Yes", systemImage: "checkmark")
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .tint(target.isApproved ? TurfTheme.moss : TurfTheme.accent)
+      VStack(alignment: .leading, spacing: TurfSpacing.controlGap) {
+        if target.isChoice, let options = target.options {
+          ForEach(options) { option in
+            let isChosen = target.selectedOption?.value == option.value
+            Button {
+              onChoice(option.value)
+            } label: {
+              Text(option.label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.turfTinted(isChosen ? .accent : .neutral, fullWidth: true))
+            .accessibilityAddTraits(isChosen ? .isSelected : [])
+          }
+        } else {
+          HStack(spacing: TurfSpacing.controlGap) {
+            Button(action: onApprove) {
+              Label("Approve", systemImage: "checkmark")
+            }
+            .buttonStyle(.turfTinted(target.isApproved ? .accent : .neutral, fullWidth: true))
+            .accessibilityAddTraits(target.isApproved ? .isSelected : [])
 
-        Button(action: onReject) {
-          Label("No", systemImage: "xmark")
-            .frame(maxWidth: .infinity)
+            Button(action: onReject) {
+              Label("Reject", systemImage: "xmark")
+            }
+            .buttonStyle(.turfTinted(target.isRejected ? .destructive : .neutral, fullWidth: true))
+            .accessibilityAddTraits(target.isRejected ? .isSelected : [])
+          }
         }
-        .buttonStyle(.bordered)
-        .tint(target.isRejected ? TurfTheme.coral : TurfTheme.muted)
 
-        Button(action: onClear) {
-          Image(systemName: "arrow.uturn.left")
-            .frame(width: 22)
+        if !target.isUnset {
+          Button(action: onClear) {
+            Label("Change decision", systemImage: "arrow.uturn.left")
+              .font(TurfType.control)
+              .foregroundStyle(TurfTheme.accent)
+              .frame(minHeight: TurfSpacing.hitTarget)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Reset review item state")
+          .transition(.opacity)
         }
-        .buttonStyle(.bordered)
-        .tint(TurfTheme.muted)
-        .accessibilityLabel("Clear item decision")
       }
       .disabled(isUpdating)
+      .turfAnimation(TurfMotion.quick, value: target.verdict)
 
-      if target.isRejected || !feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        VStack(alignment: .leading, spacing: 7) {
+      if showsFeedback {
+        VStack(alignment: .leading, spacing: TurfSpacing.s) {
           TextField("Feedback", text: $feedback, axis: .vertical)
+            .font(TurfType.body)
+            .textFieldStyle(.plain)
             .lineLimit(2...5)
-            .textFieldStyle(.roundedBorder)
+            .focused($isFeedbackFocused)
+            .padding(.horizontal, TurfSpacing.m)
+            .padding(.vertical, TurfSpacing.s)
+            .frame(minHeight: TurfSpacing.hitTarget)
+            .turfField(isFocused: isFeedbackFocused)
             .disabled(isUpdating)
           Button {
             onSaveFeedback()
@@ -167,38 +212,51 @@ private struct ReviewTargetRow: View {
             if isUpdating {
               ProgressView()
                 .controlSize(.small)
+                .tint(TurfTheme.accent)
             } else {
-              Label("Save feedback", systemImage: "tray.and.arrow.down")
+              Label {
+                Text("Save feedback")
+              } icon: {
+                Image(systemName: "tray.and.arrow.down").foregroundStyle(TurfTheme.accent)
+              }
             }
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(.turfTinted(.neutral))
           .disabled(isUpdating)
         }
+        .transition(.turfLift(reduceMotion: reduceMotion))
       } else if isUpdating {
         ProgressView()
           .controlSize(.small)
       }
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .turfPanel()
+    .turfCard()
+    .turfAnimation(TurfMotion.content, value: showsFeedback)
+  }
+
+  private var showsFeedback: Bool {
+    target.isRejected || !feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private var stateTitle: String {
-    if target.isApproved { return "Yes" }
-    if target.isRejected { return "No" }
+    if let selected = target.selectedOption { return selected.label }
+    if target.isApproved { return "Approved" }
+    if target.isRejected { return "Rejected" }
     return "Open"
   }
 
   private var stateIcon: String {
+    if target.selectedOption != nil { return "checkmark.circle.fill" }
     if target.isApproved { return "checkmark.circle.fill" }
     if target.isRejected { return "xmark.circle.fill" }
     return "circle"
   }
 
   private var stateColor: Color {
-    if target.isApproved { return TurfTheme.moss }
-    if target.isRejected { return TurfTheme.coral }
-    return TurfTheme.gold
+    if target.selectedOption != nil { return TurfTheme.accent }
+    if target.isApproved { return TurfTheme.accent }
+    if target.isRejected { return TurfTheme.destructive }
+    return TurfTheme.attention
   }
 }

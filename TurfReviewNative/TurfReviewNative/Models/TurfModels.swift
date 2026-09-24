@@ -24,17 +24,21 @@ struct ReviewItem: Codable, Hashable, Identifiable {
   var status: String
   var decision: String?
   var actions: ReviewActionList?
+  var actionPolicy: [ReviewActionPolicy]? = nil
   var feedback: String?
   var renderedHTML: String?
   var markdown: String?
+  var artifactType: String? = nil
   var contentLength: Int?
   var actionStatus: String?
   var actionMessage: String?
   var approvalStatus: String?
   var approvalMessage: String?
   var ttsStatus: String?
+  var ttsURL: String? = nil
   var contextStatus: String?
   var contextSummary: String?
+  var contextURL: String? = nil
   var decisionSchemaVersion: Int?
   var sessionKey: String? = nil
   var workspaceDir: String? = nil
@@ -52,17 +56,21 @@ struct ReviewItem: Codable, Hashable, Identifiable {
     case status
     case decision
     case actions
+    case actionPolicy
     case feedback
     case renderedHTML = "rendered_html"
     case markdown
+    case artifactType = "artifact_type"
     case contentLength = "content_length"
     case actionStatus = "action_status"
     case actionMessage = "action_message"
     case approvalStatus = "approval_status"
     case approvalMessage = "approval_message"
     case ttsStatus = "tts_status"
+    case ttsURL
     case contextStatus = "context_status"
     case contextSummary = "context_summary"
+    case contextURL
     case decisionSchemaVersion = "decision_schema_version"
     case sessionKey = "session_key"
     case workspaceDir = "workspace_dir"
@@ -97,6 +105,10 @@ struct ReviewItem: Codable, Hashable, Identifiable {
   }
 
   var allowedActions: [String] {
+    if let actionPolicy, !actionPolicy.isEmpty {
+      return actionPolicy.map(\.label)
+    }
+
     if usesCanonicalRouting {
       return Self.canonicalActions(for: category)
     }
@@ -107,6 +119,27 @@ struct ReviewItem: Codable, Hashable, Identifiable {
     }
 
     return Self.canonicalActions(for: category)
+  }
+
+  var allowedActionModels: [ReviewActionPolicy] {
+    if let actionPolicy, !actionPolicy.isEmpty {
+      return actionPolicy
+    }
+    return allowedActions.map { action in
+      ReviewActionPolicy(
+        id: "\(Self.normalizedToken(category)).\(Self.actionIDToken(action))",
+        label: action,
+        routed: nil,
+        terminal: nil
+      )
+    }
+  }
+
+  /// The server's identifier for an action. Only a server-provided action policy has one;
+  /// the IDs `allowedActionModels` derives for display are never sent back to the server.
+  func actionID(for label: String) -> String? {
+    let normalized = Self.normalizedToken(label)
+    return actionPolicy?.first { Self.normalizedToken($0.label) == normalized }?.id
   }
 
   var archiveAction: String? {
@@ -138,6 +171,14 @@ struct ReviewItem: Codable, Hashable, Identifiable {
     return "\(whole).\(decimal)k chars"
   }
 
+  var isCustomHTMLArtifact: Bool {
+    Self.normalizedToken(artifactType ?? "") == "custom_html"
+  }
+
+  var artifactPath: String? {
+    isCustomHTMLArtifact ? "/review/\(slug)/artifact/" : nil
+  }
+
   var displayHTML: String {
     if let renderedHTML, !renderedHTML.isEmpty { return renderedHTML }
     if let markdown, !markdown.isEmpty { return "<pre>\(Self.escapeHTML(markdown))</pre>" }
@@ -164,6 +205,20 @@ struct ReviewItem: Codable, Hashable, Identifiable {
   private static func normalizedToken(_ value: String) -> String {
     value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
+
+  private static func actionIDToken(_ value: String) -> String {
+    normalizedToken(value)
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+      .joined(separator: "-")
+  }
+}
+
+struct ReviewActionPolicy: Codable, Hashable, Identifiable {
+  let id: String
+  let label: String
+  let routed: Bool?
+  let terminal: Bool?
 }
 
 struct ReviewActionList: Codable, Hashable {
@@ -333,6 +388,14 @@ struct ReviewAnnotation: Codable, Hashable, Identifiable {
   }
 }
 
+struct ReviewTargetOption: Codable, Hashable, Identifiable {
+  let value: String
+  let label: String
+  let description: String?
+
+  var id: String { value }
+}
+
 struct ReviewTarget: Codable, Hashable, Identifiable {
   let databaseID: Int?
   let key: String
@@ -341,6 +404,9 @@ struct ReviewTarget: Codable, Hashable, Identifiable {
   let anchorRef: String?
   let ordinal: Int
   let verdict: String
+  let decisionKind: String?
+  let options: [ReviewTargetOption]?
+  let selectedOption: ReviewTargetOption?
   let feedback: String?
   let decided: Bool
   let decidedAt: String?
@@ -356,6 +422,9 @@ struct ReviewTarget: Codable, Hashable, Identifiable {
     case anchorRef
     case ordinal
     case verdict
+    case decisionKind
+    case options
+    case selectedOption
     case feedback
     case decided
     case decidedAt
@@ -370,6 +439,9 @@ struct ReviewTarget: Codable, Hashable, Identifiable {
     anchorRef: String? = nil,
     ordinal: Int,
     verdict: String = "unset",
+    decisionKind: String? = nil,
+    options: [ReviewTargetOption]? = nil,
+    selectedOption: ReviewTargetOption? = nil,
     feedback: String? = nil,
     decided: Bool? = nil,
     decidedAt: String? = nil,
@@ -382,6 +454,9 @@ struct ReviewTarget: Codable, Hashable, Identifiable {
     self.anchorRef = anchorRef
     self.ordinal = ordinal
     self.verdict = verdict
+    self.decisionKind = decisionKind
+    self.options = options
+    self.selectedOption = selectedOption
     self.feedback = feedback
     self.decided = decided ?? (verdict.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unset")
     self.decidedAt = decidedAt
@@ -395,6 +470,7 @@ struct ReviewTarget: Codable, Hashable, Identifiable {
   var isApproved: Bool { normalizedVerdict == "approved" }
   var isRejected: Bool { normalizedVerdict == "rejected" }
   var isUnset: Bool { normalizedVerdict == "unset" || normalizedVerdict.isEmpty }
+  var isChoice: Bool { decisionKind == "choice" && (options?.count ?? 0) > 1 }
 }
 
 struct ReviewTargetSummary: Codable, Hashable {

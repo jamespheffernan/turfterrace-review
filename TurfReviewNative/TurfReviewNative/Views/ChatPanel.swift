@@ -1,28 +1,39 @@
 import SwiftUI
 
 struct ChatPanel: View {
-  @ObservedObject var store: ReviewStore
+  let store: ReviewStore
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var draft = ""
+  @FocusState private var isDraftFocused: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: TurfSpacing.sectionGap) {
       SectionHeader(title: "Ask about this review", subtitle: "Chat uses the same review session as the web app when OpenClaw is configured.")
 
-      VStack(spacing: 10) {
+      VStack(spacing: TurfSpacing.cardGap) {
         if store.chatMessages.isEmpty {
           ContentUnavailableView("No chat yet", systemImage: "bubble.left", description: Text("Ask what matters, what is risky, or what to change first."))
             .frame(maxWidth: .infinity)
         } else {
           ForEach(store.chatMessages) { message in
             ChatBubble(message: message)
+              .transition(.turfLift(reduceMotion: reduceMotion))
           }
         }
       }
+      .turfAnimation(TurfMotion.panel, value: store.chatMessages.count)
 
-      HStack(alignment: .bottom, spacing: 8) {
+      HStack(alignment: .bottom, spacing: TurfSpacing.s) {
         TextField("Ask about this review", text: $draft, axis: .vertical)
-          .textFieldStyle(.roundedBorder)
+          .font(TurfType.body)
+          .textFieldStyle(.plain)
           .lineLimit(1...4)
+          .focused($isDraftFocused)
+          .padding(.horizontal, TurfSpacing.m)
+          .padding(.vertical, TurfSpacing.s)
+          .frame(minHeight: TurfSpacing.hitTarget)
+          .turfField(isFocused: isDraftFocused)
           .disabled(isSending)
         Button {
           let message = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,16 +42,23 @@ struct ChatPanel: View {
           draft = ""
           Task { await send(message, for: startedSlug) }
         } label: {
-          if isSending {
-            ProgressView()
-          } else {
-            Image(systemName: "arrow.up.circle.fill")
-              .font(.title2)
+          Group {
+            if isSending {
+              ProgressView()
+            } else {
+              Image(systemName: "arrow.up.circle.fill")
+                .font(.title2)
+                .foregroundStyle(canSend ? TurfTheme.accent : TurfTheme.faint)
+            }
           }
+          .frame(width: TurfSpacing.hitTarget, height: TurfSpacing.hitTarget)
+          .contentShape(Rectangle())
         }
-        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+        .buttonStyle(.plain)
+        .disabled(!canSend)
         .accessibilityLabel("Send chat message")
       }
+      .turfCard()
     }
     .onChange(of: store.selectedSlug) { _, _ in
       draft = ""
@@ -54,6 +72,10 @@ struct ChatPanel: View {
     }
   }
 
+  private var canSend: Bool {
+    !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+  }
+
   private var isSending: Bool {
     store.isSendingChat(slug: store.selectedSlug)
   }
@@ -63,23 +85,34 @@ struct ChatBubble: View {
   let message: ChatMessage
 
   var body: some View {
-    HStack {
-      if message.role == "user" { Spacer(minLength: 28) }
-      VStack(alignment: .leading, spacing: 5) {
-        Text(label)
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(TurfTheme.muted)
-        Text(message.content)
-          .font(.callout)
-          .foregroundStyle(message.role == "user" ? .white : TurfTheme.ink)
-          .fixedSize(horizontal: false, vertical: true)
+    HStack(spacing: 0) {
+      if isUser { Spacer(minLength: TurfSpacing.xxxl) }
+      HStack(alignment: .firstTextBaseline, spacing: TurfSpacing.s) {
+        if isSystem {
+          Image(systemName: "exclamationmark.circle")
+            .font(TurfType.metaStrong)
+            .foregroundStyle(TurfTheme.destructive)
+            .accessibilityHidden(true)
+        }
+        VStack(alignment: .leading, spacing: TurfSpacing.stackTight) {
+          Text(label)
+            .font(TurfType.metaStrong)
+            .foregroundStyle(authorColor)
+          Text(message.content)
+            .font(TurfType.body)
+            .foregroundStyle(isUser ? TurfTheme.onAccent : TurfTheme.ink)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
-      .padding(11)
-      .background(background)
-      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-      if message.role != "user" { Spacer(minLength: 28) }
+      .padding(TurfSpacing.cardInset)
+      .background { bubbleBackground }
+      .accessibilityElement(children: .combine)
+      if !isUser { Spacer(minLength: TurfSpacing.xxxl) }
     }
   }
+
+  private var isUser: Bool { message.role == "user" }
+  private var isSystem: Bool { message.role == "system" }
 
   private var label: String {
     switch message.role {
@@ -90,9 +123,22 @@ struct ChatBubble: View {
     }
   }
 
-  private var background: Color {
-    if message.role == "user" { return TurfTheme.accent }
-    if message.role == "system" { return TurfTheme.coral.opacity(0.12) }
-    return TurfTheme.paper
+  /// Muted text never sits on a soft fill, so the system author stays ink.
+  private var authorColor: Color {
+    if isUser { return TurfTheme.onAccent }
+    if isSystem { return TurfTheme.ink }
+    return TurfTheme.muted
+  }
+
+  @ViewBuilder
+  private var bubbleBackground: some View {
+    let shape = RoundedRectangle(cornerRadius: TurfRadius.card, style: .continuous)
+    if isUser {
+      shape.fill(TurfTheme.accentFill)
+    } else if isSystem {
+      shape.fill(TurfTheme.card).overlay(shape.fill(TurfTheme.destructiveSoft))
+    } else {
+      shape.fill(TurfTheme.card)
+    }
   }
 }

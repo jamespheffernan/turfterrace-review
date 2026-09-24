@@ -1,5 +1,9 @@
 import XCTest
+#if os(macOS)
+@testable import TurfReviewMac
+#else
 @testable import TurfReviewNative
+#endif
 
 @MainActor
 final class ReviewStoreTests: XCTestCase {
@@ -12,6 +16,7 @@ final class ReviewStoreTests: XCTestCase {
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
     APIConfiguration.defaultsStore = defaults
+    APIConfiguration.credentialStore = InMemoryCredentialStore()
     Self.clearSavedConfiguration()
   }
 
@@ -21,8 +26,131 @@ final class ReviewStoreTests: XCTestCase {
       UserDefaults(suiteName: defaultsSuiteName)?.removePersistentDomain(forName: defaultsSuiteName)
     }
     APIConfiguration.defaultsStore = .standard
+    APIConfiguration.credentialStore = KeychainCredentialStore()
     defaultsSuiteName = nil
     super.tearDown()
+  }
+
+  func testDownloadedReviewSurvivesRelaunchWithoutDetailRequests() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let item = Fixture.item(slug: "saved", title: "Saved review", status: "pending")
+    let service = MockReviewService(items: [item])
+    let library = ReviewOfflineLibrary(root: root)
+    let store = ReviewStore(configuration: .test(useDemoOnFailure: false), offlineLibrary: library) { _ in service }
+    await store.refresh()
+    try await waitForDownloads(store)
+    XCTAssertEqual(store.downloadFailures, 0)
+    XCTAssertTrue(store.downloadedSlugs.contains(item.slug))
+    let relaunched = ReviewStore(configuration: .test(useDemoOnFailure: false), offlineLibrary: ReviewOfflineLibrary(root: root)) { _ in service }
+    let calls = service.getItemCalls[item.slug]
+    await relaunched.loadDetail(slug: item.slug)
+    XCTAssertEqual(relaunched.selectedItem?.renderedHTML, item.renderedHTML)
+    XCTAssertEqual(service.getItemCalls[item.slug], calls)
+    let audio = try XCTUnwrap(relaunched.absoluteAudioURL(relaunched.contextStatus?.url))
+    XCTAssertTrue(audio.isFileURL)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: audio.path))
+    XCTAssertNil(relaunched.absoluteAudioURL("file:///etc/passwd"))
+  }
+  func testRefreshKeepsArchivedMetadataWithoutDownloadingArchivedContent() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let pending = Fixture.item(slug: "pending", title: "Pending review", status: "pending")
+    let archived = Fixture.item(slug: "archived", title: "Archived review", status: "processed")
+    let service = MockReviewService(items: [pending, archived])
+    let library = ReviewOfflineLibrary(root: root)
+    let archivedMedia = try await library.saveMedia(
+      Data("archived audio".utf8),
+      remote: URL(string: "https://review.turfterrace.com/audio/archived.mp3")!,
+      version: "archived"
+    )
+    var archivedSnapshot = ReviewOfflineLibrary.Snapshot(
+      item: archived,
+      annotations: [],
+      targets: .init(slug: archived.slug, targets: [], summary: .empty),
+      version: "archived",
+      savedAt: Date()
+    )
+    archivedSnapshot.context = AudioStatusResponse(
+      status: "ready",
+      url: archivedMedia.absoluteString,
+      summary: nil
+    )
+    archivedSnapshot.complete = true
+    try await library.save(
+      archivedSnapshot,
+      generation: await library.generation(slug: archived.slug)
+    )
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      offlineLibrary: library
+    ) { _ in service }
+
+    await store.refresh()
+    try await waitForDownloads(store)
+
+    XCTAssertEqual(store.downloadTotal, 1)
+    XCTAssertEqual(service.getItemCalls[pending.slug], 1)
+    XCTAssertEqual(service.getItemCalls[archived.slug] ?? 0, 0)
+    let savedPending = await library.snapshot(slug: pending.slug)
+    let savedArchived = await library.snapshot(slug: archived.slug)
+    XCTAssertNotNil(savedPending)
+    XCTAssertNil(savedArchived)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: archivedMedia.path))
+    XCTAssertTrue(store.items.contains { $0.slug == archived.slug })
+  }
+
+
+  func testMediaFailureKeepsReadableReviewAndRetryCompletes() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let item = Fixture.item(slug: "media-failure", title: "Readable offline", status: "pending")
+    let service = MockReviewService(items: [item])
+    service.resourceError = TestError("Offline")
+    let library = ReviewOfflineLibrary(root: root)
+    let store = ReviewStore(configuration: .test(useDemoOnFailure: false), offlineLibrary: library) { _ in service }
+    await store.refresh()
+    try await waitForDownloads(store)
+    XCTAssertEqual(store.downloadFailures, 1)
+    let saved = await library.snapshot(slug: item.slug)
+    XCTAssertEqual(saved?.item.renderedHTML, item.renderedHTML)
+    XCTAssertEqual(saved?.complete, false)
+    let calls = service.getItemCalls[item.slug]
+    await store.loadDetail(slug: item.slug)
+    XCTAssertEqual(service.getItemCalls[item.slug], calls)
+    service.resourceError = nil
+    store.retryDownloads()
+    try await waitForDownloads(store)
+    XCTAssertEqual(store.downloadFailures, 0)
+    XCTAssertTrue(store.downloadedSlugs.contains(item.slug))
+  }
+
+  func testInvalidatedOrClearedLibraryRejectsLateDownloads() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let item = Fixture.item(slug: "stale", title: "Old content", status: "pending")
+    let library = ReviewOfflineLibrary(root: root)
+    let snapshot = ReviewOfflineLibrary.Snapshot(item: item, annotations: [], targets: .init(slug: item.slug, targets: [], summary: .empty), version: "old", savedAt: Date())
+    let generation = await library.generation(slug: item.slug)
+    await library.remove(slug: item.slug)
+    do {
+      try await library.save(snapshot, generation: generation)
+      XCTFail("Invalidated download must not restore old judgments")
+    } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+    await library.clear()
+    do {
+      try await library.saveQueue([item])
+      XCTFail("A signed-out account must not be recreated by late downloads")
+    } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+  }
+
+  private func waitForDownloads(_ store: ReviewStore) async throws {
+    for _ in 0..<500 {
+      if !store.isDownloading { return }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTFail("Downloads did not finish")
   }
 
   func testReviewItemContentLengthLabelUsesReadableText() {
@@ -110,6 +238,40 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertNil(request.proofSummary)
   }
 
+  func testRefreshKeepsQueueUnselectedWhenNoDocumentIsOpen() async {
+    let pending = Fixture.item(slug: "pending-new", title: "Pending new", status: "pending")
+    let service = MockReviewService(items: [pending])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+
+    await store.refresh()
+
+    XCTAssertEqual(store.visibleItems.map(\.slug), ["pending-new"])
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
+    XCTAssertTrue(service.getItemCalls.isEmpty)
+  }
+
+  func testForegroundRefreshSkipsRecentLiveQueueAndReloadsStaleOne() async {
+    let first = Fixture.item(slug: "first", title: "First", status: "pending")
+    let second = Fixture.item(slug: "second", title: "Second", status: "pending")
+    let service = MockReviewService(items: [first])
+    service.listResponses = [[first], [second]]
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+
+    await store.refresh()
+    await store.refreshOnForeground(now: Date().addingTimeInterval(ReviewStore.foregroundRefreshInterval - 1))
+    XCTAssertEqual(store.items.map(\.slug), ["first"])
+
+    await store.refreshOnForeground(now: Date().addingTimeInterval(ReviewStore.foregroundRefreshInterval + 1))
+    XCTAssertEqual(store.items.map(\.slug), ["second"])
+  }
+
   func testRefreshLoadsLiveItemsAndSelectedDetail() async {
     let pending = Fixture.item(slug: "pending-new", title: "Pending new", status: "pending", updatedAt: "2026-06-11 10:00:00")
     let decided = Fixture.item(slug: "decided-old", title: "Decided old", status: "archived", updatedAt: "2026-06-10 10:00:00")
@@ -119,7 +281,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertFalse(store.isUsingDemoData)
     XCTAssertNil(store.bannerMessage)
@@ -128,6 +290,24 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.selectedSlug, "pending-new")
     XCTAssertEqual(store.selectedItem?.title, "Pending new")
     XCTAssertEqual(store.contextStatus?.summary, "Context for pending-new")
+  }
+
+  func testOpenReviewLinkSelectsOnlyLinkedReview() async {
+    let pending = Fixture.item(slug: "pending-new", title: "Pending new", status: "pending")
+    let decided = Fixture.item(slug: "decided-link", title: "Decided link", status: "archived")
+    let service = MockReviewService(items: [pending, decided])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    let link = URL(string: "https://review.turfterrace.com/review/decided-link")!
+
+    let openedSlug = await store.openReviewLink(link)
+
+    XCTAssertEqual(openedSlug, "decided-link")
+    XCTAssertEqual(store.selectedSlug, "decided-link")
+    XCTAssertEqual(store.selectedItem?.slug, "decided-link")
+    XCTAssertEqual(store.selectedTab, .decided)
   }
 
   func testRefreshSortsMixedServerDateFormatsByActualDate() async {
@@ -139,7 +319,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.items.map(\.slug), ["sqlite-newer", "iso-older"])
     XCTAssertEqual(store.selectedSlug, "sqlite-newer")
@@ -157,7 +337,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.items.map(\.slug), ["duplicate-slug", "other-pending"])
     XCTAssertEqual(store.items.first?.title, "Newer duplicate")
@@ -166,7 +346,7 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.selectedSlug, "other-pending")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["other-pending"])
 
-    await store.selectTab(.decided)
+    await selectTabAndFirst(store, .decided)
     XCTAssertEqual(store.selectedSlug, "duplicate-slug")
     XCTAssertEqual(store.selectedItem?.title, "Newer duplicate")
   }
@@ -181,7 +361,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.counts[.pending], 1)
     XCTAssertEqual(store.counts[.parked], 1)
@@ -189,11 +369,11 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.selectedSlug, "pending-case")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["pending-case"])
 
-    await store.selectTab(.parked)
+    await selectTabAndFirst(store, .parked)
     XCTAssertEqual(store.selectedSlug, "parked-case")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["parked-case"])
 
-    await store.selectTab(.decided)
+    await selectTabAndFirst(store, .decided)
     XCTAssertEqual(store.selectedSlug, "decided-case")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["decided-case"])
   }
@@ -209,22 +389,22 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.counts[.parked], 1)
     XCTAssertEqual(store.counts[.decided], 1)
     XCTAssertEqual(store.selectedSlug, nil)
 
-    await store.selectTab(.parked)
+    await selectTabAndFirst(store, .parked)
     XCTAssertEqual(store.selectedSlug, "archived-park")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["archived-park"])
 
-    await store.selectTab(.decided)
+    await selectTabAndFirst(store, .decided)
     XCTAssertEqual(store.selectedSlug, "archived-noted")
     XCTAssertEqual(store.visibleItems.map(\.slug), ["archived-noted"])
   }
 
-  func testRefreshFallsBackToDemoDataWhenConfigured() async {
+  func testRefreshFailureDoesNotFallBackToDemoDataFromLegacySetting() async {
     let service = MockReviewService(items: [])
     service.listItemsError = TestError("Server unavailable")
     let store = ReviewStore(
@@ -234,11 +414,11 @@ final class ReviewStoreTests: XCTestCase {
 
     await store.refresh()
 
-    XCTAssertTrue(store.isUsingDemoData)
-    XCTAssertTrue(store.bannerMessage?.contains("Showing demo data.") == true)
-    XCTAssertEqual(store.selectedSlug, DemoData.items.first?.slug)
-    XCTAssertEqual(store.selectedItem?.slug, DemoData.items.first?.slug)
-    XCTAssertEqual(store.chatMessages.first?.role, "assistant")
+    XCTAssertFalse(store.isUsingDemoData)
+    XCTAssertTrue(store.items.isEmpty)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
+    XCTAssertEqual(store.bannerMessage, "Server unavailable")
   }
 
   func testRefreshFailureKeepsLiveQueueInsteadOfDemoFallbackAfterLiveLoad() async {
@@ -248,10 +428,10 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: true),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Server unavailable")
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertFalse(store.isUsingDemoData)
     XCTAssertEqual(store.items.map(\.slug), ["live-before-outage"])
@@ -267,18 +447,16 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("New server unavailable")
     defer { Self.clearSavedConfiguration() }
 
-    await store.saveConfiguration(
-      APIConfiguration(
-        serverURL: URL(string: "http://new-server.local:3457")!,
-        username: "",
-        password: "",
-        useDemoOnFailure: false
-      )
-    )
+    await saveConfigurationAndSelectFirst(store, APIConfiguration(
+      serverURL: URL(string: "http://new-server.local:3457")!,
+      username: "",
+      password: "",
+      useDemoOnFailure: false
+    ))
 
     XCTAssertEqual(store.configuration.serverURL.absoluteString, "http://new-server.local:3457")
     XCTAssertTrue(store.items.isEmpty)
@@ -289,30 +467,68 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertFalse(store.isUsingDemoData)
   }
 
-  func testSavingConfigurationCanStillFallBackToDemoData() async {
+  func testFailedCredentialSaveKeepsActiveConfigurationAndQueueForRetry() async {
+    let currentItem = Fixture.item(slug: "current-server", title: "Current server", status: "pending")
+    let service = MockReviewService(items: [currentItem])
+    let currentConfiguration = APIConfiguration.test(useDemoOnFailure: false)
+    let store = ReviewStore(
+      configuration: currentConfiguration,
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+    let credentialStore = APIConfiguration.credentialStore as! InMemoryCredentialStore
+    credentialStore.shouldFailWrites = true
+    let replacement = APIConfiguration(
+      serverURL: URL(string: "https://replacement.example.com")!,
+      username: "reader",
+      password: "replacement-password",
+      useDemoOnFailure: true
+    )
+
+    let firstAttempt = await store.saveConfiguration(replacement)
+
+    XCTAssertFalse(firstAttempt)
+    XCTAssertEqual(store.configuration, currentConfiguration)
+    XCTAssertEqual(store.items.map(\.slug), ["current-server"])
+    XCTAssertEqual(store.selectedSlug, "current-server")
+    XCTAssertEqual(
+      store.bannerMessage,
+      "Settings were not changed because the credentials could not be saved securely."
+    )
+
+    credentialStore.shouldFailWrites = false
+    let retry = await store.saveConfiguration(replacement)
+
+    XCTAssertTrue(retry)
+    XCTAssertEqual(store.configuration, replacement)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertEqual(store.items.map(\.slug), ["current-server"])
+  }
+
+  func testSavingConfigurationDoesNotEnableDemoFallback() async {
     let old = Fixture.item(slug: "old-server-demo", title: "Old server demo", status: "pending")
     let service = MockReviewService(items: [old])
     let store = ReviewStore(
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("New server unavailable")
     defer { Self.clearSavedConfiguration() }
 
-    await store.saveConfiguration(
-      APIConfiguration(
-        serverURL: URL(string: "http://new-server.local:3457")!,
-        username: "",
-        password: "",
-        useDemoOnFailure: true
-      )
-    )
+    let saved = await store.saveConfiguration(APIConfiguration(
+      serverURL: URL(string: "http://new-server.local:3457")!,
+      username: "",
+      password: "",
+      useDemoOnFailure: true
+    ))
 
-    XCTAssertTrue(store.isUsingDemoData)
-    XCTAssertEqual(store.selectedSlug, DemoData.items.first?.slug)
-    XCTAssertEqual(store.selectedItem?.slug, DemoData.items.first?.slug)
-    XCTAssertTrue(store.bannerMessage?.contains("Showing demo data.") == true)
+    XCTAssertTrue(saved)
+    XCTAssertFalse(store.isUsingDemoData)
+    XCTAssertTrue(store.items.isEmpty)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
+    XCTAssertEqual(store.bannerMessage, "New server unavailable")
   }
 
   func testSlowDecisionDoesNotMutateSameSlugAfterConfigurationChange() async {
@@ -344,13 +560,13 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let slowTask = Task {
       await store.submitDecision("Execute", feedback: "Ship it.")
     }
     await fulfillment(of: [slowDecisionStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     XCTAssertEqual(store.selectedSlug, "shared-decision")
     XCTAssertEqual(store.selectedItem?.title, "New server decision")
@@ -399,13 +615,13 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let slowTask = Task {
       await store.createAnnotation(quote: nil, anchorRef: nil, comment: "Old server note")
     }
     await fulfillment(of: [slowCreateStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     XCTAssertEqual(store.selectedSlug, "shared-note")
     XCTAssertEqual(store.selectedItem?.title, "New server note")
@@ -439,13 +655,13 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let oldTask = Task {
       await store.submitDecision("Execute", feedback: "Old server")
     }
     await fulfillment(of: [slowDecisionStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     await store.submitDecision("Kill", feedback: "New server")
 
@@ -483,14 +699,14 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
 
     let oldTask = Task {
       await store.retryLatestAction()
     }
     await fulfillment(of: [slowRetryStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     await store.retryLatestAction()
 
@@ -527,13 +743,13 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let oldTask = Task {
       await store.sendChat("Old server question")
     }
     await fulfillment(of: [slowSendStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     let didSend = await store.sendChat("New server question")
 
@@ -568,11 +784,11 @@ final class ReviewStoreTests: XCTestCase {
     )
 
     let staleTask = Task {
-      await store.refresh()
+      await refreshAndSelectFirst(store)
     }
     await fulfillment(of: [slowListStarted], timeout: 1)
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.releaseDelayedList()
     await staleTask.value
 
@@ -584,7 +800,8 @@ final class ReviewStoreTests: XCTestCase {
   }
 
   func testRefreshClearsQueueLoadingBeforeSlowDetailCompletes() async {
-    let pending = Fixture.item(slug: "slow-detail-after-list", title: "Slow detail after list", status: "pending")
+    var pending = Fixture.item(slug: "slow-detail-after-list", title: "Slow detail after list", status: "pending")
+    pending.renderedHTML = nil
     let service = MockReviewService(items: [pending])
     service.delayedItemSlug = "slow-detail-after-list"
     let detailStarted = expectation(description: "detail request started")
@@ -597,7 +814,7 @@ final class ReviewStoreTests: XCTestCase {
     )
 
     let refreshTask = Task {
-      await store.refresh()
+      await refreshAndSelectFirst(store)
     }
     await fulfillment(of: [detailStarted], timeout: 1)
 
@@ -661,7 +878,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.reviewTargets.map(\.key), ["target-a", "target-b"])
     XCTAssertEqual(store.reviewTargetSummary.total, 2)
@@ -683,7 +900,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSave = await store.updateReviewTarget(target, verdict: "rejected", feedback: "Missing source.")
 
@@ -819,13 +1036,13 @@ final class ReviewStoreTests: XCTestCase {
       }
     )
     defer { Self.clearSavedConfiguration() }
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let oldTask = Task {
       await store.updateReviewTarget(target, verdict: "approved")
     }
     await fulfillment(of: [slowUpdateStarted], timeout: 1)
-    await store.saveConfiguration(newConfiguration)
+    await saveConfigurationAndSelectFirst(store, newConfiguration)
 
     let didSaveNewTarget = await store.updateReviewTarget(target, verdict: "rejected", feedback: "New server rejected.")
 
@@ -853,7 +1070,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.getItemErrors["broken"] = TestError("Detail unavailable")
 
     await store.selectItem(slug: "broken")
@@ -879,7 +1096,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedSlug, "detail-mismatch")
     XCTAssertEqual(store.selectedItem?.title, "Requested item")
@@ -898,7 +1115,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.annotations.map(\.comment), ["Annotation for same-broken"])
     XCTAssertEqual(store.decisionRequests.count, 0)
@@ -938,7 +1155,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.chatMessages.map(\.content), ["Existing answer", "Existing question"])
     service.chatHistoryErrors["chat-history-reload"] = TestError("Chat history unavailable")
@@ -961,7 +1178,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedSlug, "partial-detail")
     XCTAssertEqual(store.selectedItem?.title, "Partial detail")
@@ -988,7 +1205,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.reviewTargets.map(\.label), ["Approve shortlist"])
     service.targetErrors["target-reload"] = TestError("Review targets unavailable")
@@ -1008,7 +1225,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.annotations.map(\.comment), ["Annotation for annotation-reload"])
     service.annotationErrors["annotation-reload"] = TestError("Annotations unavailable")
@@ -1047,8 +1264,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
 
     XCTAssertEqual(store.decisionRequests.map(\.id), [82])
     XCTAssertEqual(store.legacyActions.map(\.id), [83])
@@ -1082,7 +1299,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedSlug, "proof-mismatch")
     XCTAssertEqual(store.selectedItem?.title, "Proof mismatch")
@@ -1118,7 +1335,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedSlug, "request-row-mismatch")
     XCTAssertEqual(store.selectedItem?.title, "Request row mismatch")
@@ -1152,7 +1369,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedSlug, "legacy-row-mismatch")
     XCTAssertEqual(store.selectedItem?.title, "Legacy row mismatch")
@@ -1173,7 +1390,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.ttsStatus?.url, "/tts-cache/stale-audio.mp3")
     XCTAssertEqual(store.contextStatus?.url, "/audio/stale-audio.mp3")
@@ -1288,7 +1505,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSend = await store.sendChat("Keep this question")
 
@@ -1312,7 +1529,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let failedSend = await store.sendChat("First question")
     service.sendChatErrors.removeValue(forKey: "recover-send")
@@ -1340,7 +1557,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let firstSend = await store.sendChat("First question")
     service.sendChatErrors["repeat-send"] = TestError("Second chat failure")
@@ -1363,7 +1580,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSend = await store.sendChat("Keep this question")
 
@@ -1385,7 +1602,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSend = await store.sendChat("What matters?")
 
@@ -1405,7 +1622,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let firstTask = Task {
       await store.sendChat("First question")
@@ -1460,7 +1677,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSave = await store.createAnnotation(quote: "Quoted text", anchorRef: "p:1", comment: "Keep this draft")
 
@@ -1485,7 +1702,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSave = await store.createAnnotation(quote: nil, anchorRef: nil, comment: "Useful note")
 
@@ -1501,7 +1718,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let didSave = await store.createAnnotation(quote: nil, anchorRef: nil, comment: "Useful note")
 
@@ -1516,7 +1733,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let annotation = await store.createAnnotationRecord(
       for: "pencil-note",
@@ -1547,7 +1764,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let failedSave = await store.createAnnotation(quote: nil, anchorRef: nil, comment: "First try")
     service.createAnnotationErrors.removeValue(forKey: "recover-note")
@@ -1567,7 +1784,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     await store.selectItem(slug: "explicit-note-b")
 
     let didSave = await store.createAnnotation(
@@ -1659,7 +1876,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     guard let annotation = store.annotations.first else {
       XCTFail("Missing annotation")
       return
@@ -1680,7 +1897,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     let staleAnnotation = ReviewAnnotation(
       id: 7,
       slug: "other-delete",
@@ -1711,7 +1928,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     guard let annotation = store.annotations.first else {
       XCTFail("Missing annotation")
       return
@@ -1811,8 +2028,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.getItemErrors["retry-request"] = TestError("Detail reload unavailable")
 
     await store.retryLatestAction()
@@ -1853,8 +2070,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
 
     await store.retryLatestAction()
     await store.loadDetail(slug: "retry-request-stale")
@@ -1894,8 +2111,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     await store.retryLatestAction()
     service.getItemErrors["retry-request-refresh-stale"] = TestError("Detail reload unavailable")
 
@@ -1928,8 +2145,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.getItemErrors["retry-action"] = TestError("Detail reload unavailable")
 
     await store.retryLatestAction()
@@ -1959,8 +2176,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
 
     await store.retryLatestAction()
     await store.loadDetail(slug: "retry-action-stale")
@@ -2000,8 +2217,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2043,8 +2260,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2090,8 +2307,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2132,8 +2349,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2175,8 +2392,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2213,8 +2430,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2240,8 +2457,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     service.resetDetailCallCounts()
 
     await store.retryLatestAction()
@@ -2271,8 +2488,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
 
     await store.retryLatestAction()
 
@@ -2371,7 +2588,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let firstTask = Task {
       await store.submitDecision("Execute", feedback: "First")
@@ -2398,7 +2615,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let firstTask = Task {
       await store.retryLatestAction()
@@ -2426,7 +2643,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let decisionTask = Task {
       await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2461,7 +2678,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let sendTask = Task {
       await store.sendChat("Question for A")
@@ -2491,7 +2708,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     await store.selectItem(slug: "explicit-decision-b")
 
     await store.submitDecision(for: "explicit-decision-a", "Execute", feedback: "Ship A.")
@@ -2526,8 +2743,8 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    await store.selectTab(.decided)
+    await refreshAndSelectFirst(store)
+    await selectTabAndFirst(store, .decided)
     await store.selectItem(slug: "explicit-retry-b")
 
     await store.retryLatestAction(for: "explicit-retry-a")
@@ -2546,7 +2763,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     await store.selectItem(slug: "explicit-chat-b")
 
     let didSend = await store.sendChat("Question for A", for: "explicit-chat-a")
@@ -2564,8 +2781,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
-    service.resetDetailCallCounts()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision("Execute", feedback: "Ship it.")
 
@@ -2575,8 +2791,6 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.selectedItem?.status, "processed")
     XCTAssertEqual(store.selectedItem?.decision, "Execute")
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
-    XCTAssertEqual(service.getItemCalls["ship"] ?? 0, 0)
-    XCTAssertEqual(service.chatHistoryCalls["ship"] ?? 0, 0)
   }
 
   func testWrongSlugDecisionResponseDoesNotMoveReviewOutOfPending() async {
@@ -2597,7 +2811,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.resetDetailCallCounts()
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2630,7 +2844,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.resetDetailCallCounts()
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2657,7 +2871,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.annotations.map(\.comment), ["Annotation for ship-no-refresh"])
     XCTAssertEqual(store.decisionRequests.map(\.summary), ["Run downstream work"])
@@ -2694,7 +2908,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[stalePending]]
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2709,7 +2923,7 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.bannerMessage, "Execute saved.")
   }
 
-  func testManualRefreshKeepsAcceptedDecisionWhenServerStillReturnsStalePendingItem() async {
+  func testManualRefreshRetainsSelectedAcceptedDocumentWhenServerStillReturnsStalePendingItem() async {
     let pending = Fixture.item(slug: "ship-stale-manual-refresh", title: "Ship with stale manual refresh", status: "pending")
     let stalePending = Fixture.item(slug: "ship-stale-manual-refresh", title: "Ship with stale manual refresh", status: "pending")
     let service = MockReviewService(items: [pending])
@@ -2717,20 +2931,20 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[stalePending], [stalePending]]
 
     await store.submitDecision("Execute", feedback: "Ship it.")
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
-    XCTAssertEqual(store.selectedTab, .pending)
-    XCTAssertNil(store.selectedSlug)
-    XCTAssertNil(store.selectedItem)
-    XCTAssertEqual(store.visibleItems.map(\.slug), [])
+    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedSlug, "ship-stale-manual-refresh")
+    XCTAssertEqual(store.selectedItem?.status, "processed")
+    XCTAssertEqual(store.visibleItems.map(\.slug), ["ship-stale-manual-refresh"])
   }
 
-  func testManualRefreshKeepsAcceptedDecisionWhenServerStillDropsItem() async {
+  func testManualRefreshRetainsSelectedAcceptedDocumentWhenServerStillDropsItem() async {
     let pending = Fixture.item(slug: "ship-dropped-manual-refresh", title: "Ship with dropped manual refresh", status: "pending")
     let otherDecided = Fixture.item(slug: "other-manual-decided", title: "Other manual decided", status: "processed")
     let service = MockReviewService(items: [pending, otherDecided])
@@ -2738,17 +2952,17 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[otherDecided], [otherDecided]]
 
     await store.submitDecision("Execute", feedback: "Ship it.")
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(service.decisions.map(\.decision), ["Execute"])
     XCTAssertEqual(store.selectedTab, .pending)
-    XCTAssertNil(store.selectedSlug)
-    XCTAssertNil(store.selectedItem)
-    XCTAssertEqual(store.visibleItems.map(\.slug), [])
+    XCTAssertEqual(store.selectedSlug, "ship-dropped-manual-refresh")
+    XCTAssertEqual(store.selectedItem?.status, "processed")
+    XCTAssertTrue(store.visibleItems.isEmpty)
   }
 
   func testManualRefreshFailureKeepsAcceptedDecisionInsteadOfDemoFallback() async {
@@ -2758,11 +2972,11 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: true),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision("Execute", feedback: "Ship it.")
     service.listItemsError = TestError("Server unavailable")
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertFalse(store.isUsingDemoData)
     XCTAssertEqual(store.selectedTab, .pending)
@@ -2794,7 +3008,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Refresh unavailable")
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2841,7 +3055,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[staleProcessed]]
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2879,7 +3093,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Refresh unavailable")
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2918,7 +3132,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Refresh unavailable")
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -2941,7 +3155,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.openFollowupReview(
       .init(
@@ -2975,7 +3189,7 @@ final class ReviewStoreTests: XCTestCase {
       clientFactory: { _ in service }
     )
 
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     XCTAssertEqual(store.selectedTab, .decided)
     XCTAssertEqual(store.selectedSlug, "detail-status-moved")
@@ -2995,7 +3209,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.openConfirmationReview(slug: " confirmation-native-detail ")
 
@@ -3016,7 +3230,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.resetDetailCallCounts()
 
     await store.openConfirmationReview(slug: "  ")
@@ -3034,7 +3248,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[otherDecided]]
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -3074,7 +3288,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let decisionTask = Task {
       await store.submitDecision("Execute", feedback: "Ship it.")
@@ -3122,7 +3336,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     let decisionTask = Task {
       await store.submitDecision("Execute", feedback: "Ship it.")
@@ -3168,7 +3382,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listResponses = [[deciding, next]]
     service.delayNextList = true
 
@@ -3201,7 +3415,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: true),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Refresh unavailable")
 
     await store.submitDecision("Execute", feedback: "Ship it.")
@@ -3234,7 +3448,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision(" park ", feedback: "")
 
@@ -3254,7 +3468,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision(" execute \n", feedback: "Ship it.")
 
@@ -3285,7 +3499,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision("Execute", feedback: "Ship it.")
 
@@ -3305,7 +3519,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
     service.listItemsError = TestError("Refresh unavailable")
 
     await store.submitDecision("Park", feedback: "")
@@ -3326,7 +3540,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.submitDecision("Park", feedback: "")
 
@@ -3337,6 +3551,166 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertEqual(store.visibleItems.map(\.slug), [])
   }
 
+  func testArchiveAllVisiblePendingItemsSubmitsCanonicalArchiveDecisions() async {
+    let general = Fixture.item(
+      slug: "archive-general",
+      title: "Archive general",
+      status: "pending",
+      category: "general",
+      updatedAt: "2026-06-11 10:00:00"
+    )
+    let confirmation = Fixture.item(
+      slug: "archive-confirmation",
+      title: "Archive confirmation",
+      status: "pending",
+      category: "confirmation",
+      updatedAt: "2026-06-11 09:00:00"
+    )
+    let service = MockReviewService(items: [confirmation, general])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+
+    let didArchive = await store.archiveAllVisiblePendingItems()
+
+    XCTAssertTrue(didArchive)
+    XCTAssertEqual(service.decisions.map(\.slug), ["archive-general", "archive-confirmation"])
+    XCTAssertEqual(service.decisions.map(\.decision), ["Noted", "No further action"])
+    XCTAssertEqual(service.decisions.map(\.actionId), [nil, nil])
+    XCTAssertEqual(service.decisions.map(\.feedback), ["", ""])
+    XCTAssertEqual(store.counts[.pending], 0)
+    XCTAssertEqual(store.counts[.decided], 2)
+    XCTAssertTrue(store.visibleItems.isEmpty)
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertEqual(store.bannerMessage, "Archived 2 reviews.")
+  }
+
+  func testArchiveAllVisiblePendingItemsSkipsRowsWithoutArchiveAction() async {
+    let archiveable = Fixture.item(
+      slug: "archiveable-row",
+      title: "Archiveable row",
+      status: "pending",
+      category: "general",
+      updatedAt: "2026-06-11 10:00:00"
+    )
+    let sendOnly = Fixture.item(
+      slug: "send-only-row",
+      title: "Send only row",
+      status: "pending",
+      category: "outreach",
+      updatedAt: "2026-06-11 09:00:00"
+    )
+    let service = MockReviewService(items: [archiveable, sendOnly])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+
+    let didArchive = await store.archiveAllVisiblePendingItems()
+
+    XCTAssertTrue(didArchive)
+    XCTAssertEqual(service.decisions.map(\.slug), ["archiveable-row"])
+    XCTAssertEqual(service.decisions.map(\.decision), ["Noted"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), ["send-only-row"])
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertEqual(store.bannerMessage, "Archived 1 review. 1 review skipped because no archive action is available.")
+  }
+
+  func testArchiveAllVisiblePendingItemsKeepsFailuresPending() async {
+    let succeeds = Fixture.item(
+      slug: "archive-succeeds",
+      title: "Archive succeeds",
+      status: "pending",
+      category: "general",
+      updatedAt: "2026-06-11 10:00:00"
+    )
+    let fails = Fixture.item(
+      slug: "archive-fails",
+      title: "Archive fails",
+      status: "pending",
+      category: "general",
+      updatedAt: "2026-06-11 09:00:00"
+    )
+    let service = MockReviewService(items: [succeeds, fails])
+    service.decisionErrors["archive-fails"] = TestError("Archive unavailable")
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+
+    let didArchive = await store.archiveAllVisiblePendingItems()
+
+    XCTAssertFalse(didArchive)
+    XCTAssertEqual(service.decisions.map(\.slug), ["archive-succeeds", "archive-fails"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), ["archive-fails"])
+    XCTAssertEqual(store.items.first { $0.slug == "archive-succeeds" }?.decision, "Noted")
+    XCTAssertNil(store.items.first { $0.slug == "archive-fails" }?.decision)
+    XCTAssertEqual(store.bannerMessage, "Archived 1 review. 1 review failed: Archive unavailable")
+  }
+
+  func testArchiveSelectedItemsOnlyArchivesSelectedRowsInVisibleOrder() async {
+    let first = Fixture.item(
+      slug: "selected-archive-a",
+      title: "Selected archive A",
+      status: "pending",
+      updatedAt: "2026-06-11 10:00:00"
+    )
+    let second = Fixture.item(
+      slug: "selected-archive-b",
+      title: "Selected archive B",
+      status: "pending",
+      updatedAt: "2026-06-11 09:00:00"
+    )
+    let unselected = Fixture.item(
+      slug: "selected-archive-c",
+      title: "Selected archive C",
+      status: "pending",
+      updatedAt: "2026-06-11 08:00:00"
+    )
+    let service = MockReviewService(items: [unselected, second, first])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+
+    store.enterArchiveSelectionMode()
+    store.toggleArchiveSelection(slug: "selected-archive-b")
+    store.toggleArchiveSelection(slug: "selected-archive-a")
+    let didArchive = await store.archiveSelectedItems()
+
+    XCTAssertTrue(didArchive)
+    XCTAssertEqual(service.decisions.map(\.slug), ["selected-archive-a", "selected-archive-b"])
+    XCTAssertEqual(store.visibleItems.map(\.slug), ["selected-archive-c"])
+    XCTAssertFalse(store.isArchiveSelectionMode)
+    XCTAssertTrue(store.selectedArchiveSlugs.isEmpty)
+    XCTAssertEqual(store.bannerMessage, "Archived 2 reviews.")
+  }
+
+  func testArchiveSelectionClearsWhenLeavingPendingTab() async {
+    let pending = Fixture.item(slug: "selection-pending", title: "Selection pending", status: "pending")
+    let decided = Fixture.item(slug: "selection-decided", title: "Selection decided", status: "processed")
+    let service = MockReviewService(items: [pending, decided])
+    let store = ReviewStore(
+      configuration: .test(useDemoOnFailure: false),
+      clientFactory: { _ in service }
+    )
+    await refreshAndSelectFirst(store)
+
+    store.enterArchiveSelectionMode()
+    store.toggleArchiveSelection(slug: "selection-pending")
+    await selectTabAndFirst(store, .decided)
+
+    XCTAssertFalse(store.isArchiveSelectionMode)
+    XCTAssertTrue(store.selectedArchiveSlugs.isEmpty)
+    XCTAssertEqual(store.selectedTab, .decided)
+    XCTAssertEqual(store.selectedSlug, "selection-decided")
+  }
+
   func testSelectingEmptyTabClearsDetail() async {
     let pending = Fixture.item(slug: "only-pending", title: "Only pending", status: "pending")
     let service = MockReviewService(items: [pending])
@@ -3344,9 +3718,9 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
-    await store.selectTab(.parked)
+    await selectTabAndFirst(store, .parked)
 
     XCTAssertEqual(store.selectedTab, .parked)
     XCTAssertNil(store.selectedSlug)
@@ -3359,7 +3733,7 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertFalse(store.detailLoading)
   }
 
-  func testSelectingPopulatedTabChoosesFirstVisibleItem() async {
+  func testSelectingPopulatedTabDoesNotOpenFirstVisibleItem() async {
     let pending = Fixture.item(slug: "pending", title: "Pending", status: "pending", updatedAt: "2026-06-11 10:00:00")
     let decided = Fixture.item(slug: "decided", title: "Decided", status: "processed", updatedAt: "2026-06-11 09:00:00")
     let service = MockReviewService(items: [pending, decided])
@@ -3367,13 +3741,13 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.selectTab(.decided)
 
     XCTAssertEqual(store.selectedTab, .decided)
-    XCTAssertEqual(store.selectedSlug, "decided")
-    XCTAssertEqual(store.selectedItem?.title, "Decided")
+    XCTAssertNil(store.selectedSlug)
+    XCTAssertNil(store.selectedItem)
     XCTAssertEqual(store.visibleItems.map(\.slug), ["decided"])
   }
 
@@ -3384,7 +3758,7 @@ final class ReviewStoreTests: XCTestCase {
       configuration: .test(useDemoOnFailure: false),
       clientFactory: { _ in service }
     )
-    await store.refresh()
+    await refreshAndSelectFirst(store)
 
     await store.selectItem(slug: nil)
 
@@ -3395,6 +3769,29 @@ final class ReviewStoreTests: XCTestCase {
     XCTAssertTrue(store.chatMessages.isEmpty)
     XCTAssertNil(store.ttsStatus)
     XCTAssertNil(store.contextStatus)
+  }
+
+  private func refreshAndSelectFirst(_ store: ReviewStore) async {
+    await store.refresh()
+    guard store.selectedSlug == nil,
+          let slug = store.visibleItems.first?.slug else { return }
+    await store.selectItem(slug: slug)
+  }
+
+  private func selectTabAndFirst(_ store: ReviewStore, _ tab: ReviewTab) async {
+    await store.selectTab(tab)
+    guard store.selectedSlug == nil,
+          let slug = store.visibleItems.first?.slug else { return }
+    await store.selectItem(slug: slug)
+  }
+
+  private func saveConfigurationAndSelectFirst(
+    _ store: ReviewStore,
+    _ configuration: APIConfiguration
+  ) async {
+    guard await store.saveConfiguration(configuration),
+          let slug = store.visibleItems.first?.slug else { return }
+    await store.selectItem(slug: slug)
   }
 
   private static func clearSavedConfiguration() {
@@ -3451,7 +3848,8 @@ private final class MockReviewService: TurfReviewServicing {
   var actionResponses: [String: ReviewActionsResponse] = [:]
   var retryResponses: [String: RetryResponse] = [:]
   var decisionResponses: [String: DecisionResponse] = [:]
-  var decisions: [(slug: String, decision: String, feedback: String?)] = []
+  var decisionErrors: [String: Error] = [:]
+  var decisions: [(slug: String, decision: String, actionId: String?, feedback: String?)] = []
   var retryCalls: [String] = []
   var createAnnotationCalls: [(slug: String, quote: String?, anchorType: String, anchorRef: String?, comment: String, imageData: String?, imageMime: String?)] = []
   var updateTargetCalls: [(slug: String, targetKey: String, verdict: String, feedback: String?)] = []
@@ -3676,14 +4074,17 @@ private final class MockReviewService: TurfReviewServicing {
     return DeleteAnnotationResponse(deleted: true)
   }
 
-  func decide(slug: String, decision: String, feedback: String?) async throws -> DecisionResponse {
+  func decide(slug: String, decision: String, actionId: String?, feedback: String?) async throws -> DecisionResponse {
     if slug == delayedDecisionSlug {
       delayedDecisionStarted?()
       await withCheckedContinuation { continuation in
         delayedDecisionContinuation = continuation
       }
     }
-    decisions.append((slug, decision, feedback))
+    decisions.append((slug, decision, actionId, feedback))
+    if let error = decisionErrors[slug] {
+      throw error
+    }
     if let response = decisionResponses[slug] {
       return response
     }
@@ -3797,6 +4198,12 @@ private final class MockReviewService: TurfReviewServicing {
       throw error
     }
     return AudioStatusResponse(status: "ready", url: "/audio/\(slug).mp3", summary: "Context for \(slug)")
+  }
+
+  var resourceError: Error?
+  func downloadResource(_ url: URL) async throws -> (Data, String) {
+    if let resourceError { throw resourceError }
+    return (Data("test audio".utf8), "audio/mpeg")
   }
 
   func absoluteURL(for relativeOrAbsolute: String?) -> URL? {

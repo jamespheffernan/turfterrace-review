@@ -1,11 +1,14 @@
-import PencilKit
 import SwiftUI
+#if os(iOS)
+import PencilKit
 import UIKit
+#endif
 
 struct AnnotationPanel: View {
-  @ObservedObject var store: ReviewStore
+  let store: ReviewStore
   let selection: WebSelection
 
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var showingComposer = false
   @State private var composerQuote = ""
   @State private var composerAnchorRef: String?
@@ -13,18 +16,20 @@ struct AnnotationPanel: View {
   @State private var deletingAnnotationIDs: Set<Int> = []
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: TurfSpacing.sectionGap) {
       SectionHeader(
-        title: "Inline notes",
-        subtitle: selection.isEmpty ? "Select text in the review to anchor a note, or add a general note." : "Selection ready. Save it as a review annotation."
+        title: "Notes & annotations",
+        subtitle: selection.isEmpty ? "Add a general note, or select text in the review to attach a note to that passage." : "The selected passage is ready for an attached note."
       )
 
-      if !selection.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: TurfSpacing.controlGap) {
+        if !selection.isEmpty {
           Text(selection.text)
-            .font(.callout)
+            .font(TurfType.quote)
             .foregroundStyle(TurfTheme.ink)
             .lineLimit(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, TurfSpacing.xs)
           Button {
             composerQuote = selection.text
             composerAnchorRef = selection.anchorRef
@@ -32,41 +37,44 @@ struct AnnotationPanel: View {
             showingComposer = true
           } label: {
             Label("Annotate selection", systemImage: "text.badge.plus")
-              .frame(maxWidth: .infinity)
           }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(.turfFilled(.accent, fullWidth: true))
         }
-        .padding(12)
-        .turfPanel()
-      }
 
-      Button {
-        composerQuote = ""
-        composerAnchorRef = nil
-        composerSlug = store.selectedSlug
-        showingComposer = true
-      } label: {
-        Label("Add review note", systemImage: "square.and.pencil")
-          .frame(maxWidth: .infinity)
+        Button {
+          composerQuote = ""
+          composerAnchorRef = nil
+          composerSlug = store.selectedSlug
+          showingComposer = true
+        } label: {
+          Label {
+            Text("Add review note")
+          } icon: {
+            Image(systemName: "square.and.pencil").foregroundStyle(TurfTheme.accent)
+          }
+        }
+        .buttonStyle(.turfTinted(.neutral, fullWidth: true))
       }
-      .buttonStyle(.bordered)
+      .turfCard()
 
       if store.annotations.isEmpty {
         ContentUnavailableView(
-          "No notes yet",
-          systemImage: "text.quote",
-          description: Text("Annotations stay attached to this review and travel into downstream decisions.")
+          "No notes for this review",
+          systemImage: "note.text",
+          description: Text("Select text to attach a note, or add a general review note. Notes are included with your decision.")
         )
         .frame(maxWidth: .infinity)
       } else {
-        VStack(spacing: 10) {
+        VStack(spacing: TurfSpacing.cardGap) {
           ForEach(store.annotations) { annotation in
             AnnotationRow(annotation: annotation, isDeleting: deletingAnnotationIDs.contains(annotation.id)) {
               let targetSlug = annotation.slug ?? store.selectedSlug
               Task { await delete(annotation, from: targetSlug) }
             }
+            .transition(.turfLift(reduceMotion: reduceMotion))
           }
         }
+        .turfAnimation(TurfMotion.panel, value: store.annotations.map(\.id))
       }
     }
     .sheet(isPresented: $showingComposer) {
@@ -102,59 +110,82 @@ struct AnnotationRow: View {
   let onDelete: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: TurfSpacing.s) {
       if let quote = annotation.quote, !quote.isEmpty {
-        Text("\"\(quote)\"")
-          .font(.caption)
-          .foregroundStyle(TurfTheme.accent)
+        Text(Self.highlighted(quote))
+          .font(TurfType.quote)
+          .foregroundStyle(TurfTheme.ink)
           .lineLimit(3)
+          .accessibilityLabel("Quoted passage: \(quote)")
       }
 
       if let image = annotation.inlineImage {
-        Image(uiImage: image)
+        Image(turfPlatformImage: image)
           .resizable()
           .scaledToFit()
           .frame(maxHeight: 170)
           .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(6)
+          .padding(TurfSpacing.s)
           .background(Color.white)
-          .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-          .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-              .stroke(TurfTheme.hairline, lineWidth: 1)
-          )
+          .clipShape(RoundedRectangle(cornerRadius: TurfRadius.field, style: .continuous))
           .accessibilityLabel("Pencil annotation sketch")
       }
 
       Text(annotation.comment)
-        .font(.body)
+        .font(TurfType.body)
         .foregroundStyle(TurfTheme.ink)
         .fixedSize(horizontal: false, vertical: true)
 
-      HStack {
-        Text(annotation.createdAt?.prefix(16) ?? "Just now")
-          .font(.caption2)
+      HStack(alignment: .center, spacing: TurfSpacing.s) {
+        Text(timestamp)
+          .font(TurfType.caption)
           .foregroundStyle(TurfTheme.muted)
-        Spacer()
+        Spacer(minLength: 0)
         Button(role: .destructive, action: onDelete) {
-          if isDeleting {
-            ProgressView()
-              .controlSize(.small)
-          } else {
-            Image(systemName: "trash")
+          Group {
+            if isDeleting {
+              ProgressView()
+                .controlSize(.small)
+            } else {
+              Image(systemName: "trash")
+                .font(TurfType.body)
+                .foregroundStyle(TurfTheme.destructive)
+            }
           }
+          .frame(width: TurfSpacing.hitTarget, height: TurfSpacing.hitTarget)
+          .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .disabled(isDeleting)
         .accessibilityLabel("Delete annotation")
       }
+      // The 44pt delete target overhangs the card's bottom-trailing padding instead of growing the row.
+      // Upward it reaches only into the stack spacing, so it never covers the comment text.
+      .padding(.trailing, -TurfSpacing.m)
+      .padding(.top, -TurfSpacing.s)
+      .padding(.bottom, -TurfSpacing.m)
     }
-    .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .turfPanel()
+    .turfCard()
+  }
+
+  private var timestamp: String {
+    guard let createdAt = annotation.createdAt else { return "Just now" }
+    if let date = ServerDate.parse(createdAt) {
+      return date.formatted(date: .abbreviated, time: .shortened)
+    }
+    return String(createdAt.prefix(16))
+  }
+
+  /// The quote painted with the reader's saved-note highlighter, line by line.
+  private static func highlighted(_ quote: String) -> AttributedString {
+    var text = AttributedString(quote)
+    text.backgroundColor = TurfTheme.highlight
+    return text
   }
 }
 
+#if os(iOS)
 struct PencilAnnotationPayload: Equatable {
   let anchorRef: String
   let comment: String
@@ -203,25 +234,26 @@ struct PencilAnnotationComposer: View {
   let onSave: (PencilAnnotationPayload) async -> Bool
 
   @Environment(\.dismiss) private var dismiss
+  /// About four lines of body text; grows with Dynamic Type.
+  @ScaledMetric(relativeTo: .body) private var noteMinHeight: CGFloat = 96
   @State private var drawing = PKDrawing()
   @State private var note = ""
   @State private var allowsFingerDrawing = false
   @State private var isSaving = false
+  @FocusState private var isNoteFocused: Bool
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var body: some View {
     NavigationStack {
-      VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: TurfSpacing.l) {
+        // The canvas stays white on purpose: the saved sketch is rendered on white.
         PencilCanvasView(drawing: $drawing, allowsFingerDrawing: allowsFingerDrawing)
           .frame(minHeight: 360)
           .background(Color.white)
-          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-          .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-              .stroke(TurfTheme.hairline, lineWidth: 1)
-          )
+          .clipShape(RoundedRectangle(cornerRadius: TurfRadius.field, style: .continuous))
           .accessibilityLabel("Pencil sketch canvas")
 
-        HStack(spacing: 12) {
+        HStack(spacing: TurfSpacing.m) {
           Toggle("Finger drawing", isOn: $allowsFingerDrawing)
             .disabled(isSaving)
           Spacer()
@@ -232,24 +264,26 @@ struct PencilAnnotationComposer: View {
           }
           .disabled(drawing.bounds.isNull || drawing.bounds.isEmpty || isSaving)
         }
+        .frame(minHeight: TurfSpacing.hitTarget)
+        .padding(.horizontal, TurfSpacing.cardInset)
+        .padding(.vertical, TurfSpacing.xs)
+        .turfCard(padding: nil)
 
         TextEditor(text: $note)
-          .frame(minHeight: 96)
-          .padding(8)
+          .font(TurfType.body)
+          .frame(minHeight: noteMinHeight)
           .scrollContentBackground(.hidden)
-          .background(TurfTheme.panel)
-          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-          .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-              .stroke(TurfTheme.hairline, lineWidth: 1)
-          )
+          .focused($isNoteFocused)
+          .padding(TurfSpacing.s)
+          .turfField(isFocused: isNoteFocused)
+          .background(TurfTheme.card, in: RoundedRectangle(cornerRadius: TurfRadius.field, style: .continuous))
           .disabled(isSaving)
           .accessibilityLabel("Pencil note")
 
         Spacer(minLength: 0)
       }
-      .padding(16)
-      .background(TurfTheme.paper)
+      .padding(TurfSpacing.panelInset(compact: horizontalSizeClass == .compact))
+      .background(TurfTheme.panel)
       .navigationTitle("Pencil note")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -346,60 +380,55 @@ struct PencilCanvasView: UIViewRepresentable {
     }
   }
 }
+#endif
 
 private extension ReviewAnnotation {
-  var inlineImage: UIImage? {
+  var inlineImage: TurfPlatformImage? {
     guard let imageData,
           let data = Data(base64Encoded: imageData),
-          let image = UIImage(data: data) else { return nil }
+          let image = TurfPlatformImage(data: data) else { return nil }
     return image
   }
 }
 
 struct AnnotationComposer: View {
   let quote: String
+  var autofocus: Bool = false
   let onSave: (String) async -> Bool
 
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  #if os(iOS)
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
   @State private var comment = ""
   @State private var isSaving = false
+  @State private var presentationStage = 0
+  @FocusState private var isCommentFocused: Bool
 
   var body: some View {
     NavigationStack {
-      VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: TurfSpacing.l) {
+        AnnotationComposerHeader(isSaving: isSaving, hasQuote: !quote.isEmpty)
+          .opacity(presentationStage >= 1 ? 1 : 0)
+          .offset(y: reduceMotion || presentationStage >= 1 ? 0 : TurfMotion.lift)
+
         if !quote.isEmpty {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("Quote")
-              .font(.caption.weight(.bold))
-              .foregroundStyle(TurfTheme.muted)
-            Text(quote)
-              .font(.callout)
-              .foregroundStyle(TurfTheme.ink)
-              .lineLimit(6)
-          }
-          .padding(12)
-          .turfPanel()
+          AnnotationQuotePreview(quote: quote)
+            .opacity(presentationStage >= 1 ? 1 : 0)
+            .offset(y: reduceMotion || presentationStage >= 1 ? 0 : TurfMotion.lift)
         }
 
-        TextEditor(text: $comment)
-          .frame(minHeight: 180)
-          .padding(8)
-          .scrollContentBackground(.hidden)
-          .background(TurfTheme.panel)
-          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-          .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-              .stroke(TurfTheme.hairline, lineWidth: 1)
-          )
-          .disabled(isSaving)
-          .accessibilityLabel("Annotation comment")
+        AnnotationEditorField(comment: $comment, isSaving: isSaving, isFocused: $isCommentFocused)
+          .opacity(presentationStage >= 2 ? 1 : 0)
+          .offset(y: reduceMotion || presentationStage >= 2 ? 0 : TurfMotion.lift)
 
         Spacer()
       }
-      .padding(16)
-      .background(TurfTheme.paper)
-      .navigationTitle("Annotation")
-      .navigationBarTitleDisplayMode(.inline)
+      .padding(TurfSpacing.panelInset(compact: isCompact))
+      .background(TurfTheme.panel)
+      .navigationTitle("New note")
+      .turfInlineNavigationTitle()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }
@@ -409,26 +438,172 @@ struct AnnotationComposer: View {
           Button {
             Task { await save() }
           } label: {
-            if isSaving {
-              ProgressView()
-            } else {
-              Text("Save")
+            Group {
+              if isSaving {
+                Label("Saving", systemImage: "checkmark.circle.fill")
+              } else {
+                Label("Save", systemImage: "checkmark")
+              }
             }
+            .labelStyle(.titleAndIcon)
+            .contentTransition(.opacity)
           }
+          .buttonStyle(.turfFilled(.accent))
           .disabled(comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+          .keyboardShortcut(.return, modifiers: .command)
         }
       }
     }
+    .presentationDetents([.medium, .large])
+    .presentationDragIndicator(.visible)
+    .presentationBackground(TurfTheme.panel)
+    .onAppear {
+      runEntrance()
+    }
+  }
+
+  private var isCompact: Bool {
+    #if os(iOS)
+    horizontalSizeClass == .compact
+    #else
+    false
+    #endif
   }
 
   private func save() async {
     let trimmed = comment.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, !isSaving else { return }
-    isSaving = true
+    TurfPlatformFeedback.saveStarted()
+    withTurfAnimation(TurfMotion.quick, reduceMotion: reduceMotion) {
+      isSaving = true
+    }
     let didSave = await onSave(trimmed)
-    isSaving = false
+    withTurfAnimation(TurfMotion.quick, reduceMotion: reduceMotion) {
+      isSaving = false
+    }
     if didSave {
+      TurfPlatformFeedback.saveSucceeded()
       dismiss()
     }
+  }
+
+  private func runEntrance() {
+    if reduceMotion {
+      presentationStage = 2
+      focusEditorIfNeeded()
+      return
+    }
+
+    presentationStage = 0
+    withTurfAnimation(TurfMotion.panel, reduceMotion: reduceMotion) {
+      presentationStage = 1
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + AnnotationComposerMotion.editorDelay) {
+      withTurfAnimation(TurfMotion.panel, reduceMotion: reduceMotion) {
+        presentationStage = 2
+      }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + AnnotationComposerMotion.focusDelay) {
+      focusEditorIfNeeded()
+    }
+  }
+
+  private func focusEditorIfNeeded() {
+    guard autofocus else { return }
+    isCommentFocused = true
+  }
+}
+
+/*
+ ANIMATION STORYBOARD  (all stages use TurfMotion.panel, 8pt lift; Reduce Motion shows everything at once)
+
+   0ms   sheet content mounts; header and quote lift into place
+  70ms   editor lifts into place and becomes the main target
+ 120ms   keyboard focus follows the visual motion
+ Save   label swaps to "Saving" (TurfMotion.quick); the button itself carries the press feedback
+ */
+private enum AnnotationComposerMotion {
+  static let editorDelay: TimeInterval = 0.07
+  static let focusDelay: TimeInterval = 0.12
+}
+
+private struct AnnotationComposerHeader: View {
+  let isSaving: Bool
+  let hasQuote: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: TurfSpacing.stackTight) {
+      Text(isSaving ? "Saving note" : "Ready to annotate")
+        .font(TurfType.panelTitle)
+        .foregroundStyle(TurfTheme.ink)
+        .contentTransition(.opacity)
+      // A general note has no anchored passage, so the anchor line only appears with a quote.
+      if isSaving || hasQuote {
+        Text(isSaving ? "Adding it to the review" : "The selected text is anchored")
+          .font(TurfType.meta)
+          .foregroundStyle(TurfTheme.muted)
+          .contentTransition(.opacity)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .combine)
+  }
+}
+
+private struct AnnotationQuotePreview: View {
+  let quote: String
+
+  var body: some View {
+    Text(Self.highlighted(quote))
+      .font(TurfType.quote)
+      .foregroundStyle(TurfTheme.ink)
+      .lineLimit(5)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .turfCard()
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Selected quote")
+      .accessibilityValue(quote)
+  }
+
+  /// A draft note: the quote carries the active highlighter until the note is saved.
+  private static func highlighted(_ quote: String) -> AttributedString {
+    var text = AttributedString(quote)
+    text.backgroundColor = TurfTheme.highlightActive
+    return text
+  }
+}
+
+private struct AnnotationEditorField: View {
+  @Binding var comment: String
+  let isSaving: Bool
+  var isFocused: FocusState<Bool>.Binding
+
+  /// TextEditor draws its text inset from its own frame (5pt leading, 8pt top on iOS).
+  /// The placeholder adds the same inset so it sits exactly where typed text starts.
+  private static let systemTextInset = EdgeInsets(top: 8, leading: 5, bottom: 0, trailing: 0)
+
+  var body: some View {
+    ZStack(alignment: .topLeading) {
+      if comment.isEmpty {
+        Text("Add your note")
+          .font(TurfType.body)
+          .foregroundStyle(TurfTheme.muted)
+          .padding(Self.systemTextInset)
+          .padding(TurfSpacing.s)
+          .allowsHitTesting(false)
+          .accessibilityHidden(true)
+      }
+
+      TextEditor(text: $comment)
+        .font(TurfType.body)
+        .frame(minHeight: 190)
+        .padding(TurfSpacing.s)
+        .scrollContentBackground(.hidden)
+        .disabled(isSaving)
+        .focused(isFocused)
+        .accessibilityLabel("Annotation comment")
+    }
+    .turfField(isFocused: isFocused.wrappedValue)
+    .background(TurfTheme.card, in: RoundedRectangle(cornerRadius: TurfRadius.field, style: .continuous))
   }
 }
